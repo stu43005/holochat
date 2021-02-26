@@ -11,6 +11,7 @@ const LIVE_CHAT_MESSAGES_LIST_QUOTA = 5; // This was determined to be correct vi
 const LIVE_CHAT_MESSAGE_QUOTA_PER_ITEM = 0; // This *should* be 0, but it's here in case it's not.
 const MAX_MAX_RESULTS = 2000;
 const MIN_REQUEST_DELAY = 5000;
+const ERROR_REQUEST_DELAY = 300000;
 
 export class MyYouTubeLiveChat {
 	public estimatedQuotaUsed = 0;
@@ -100,13 +101,17 @@ export class MyYouTubeLiveChat {
 						this.stop(liveChatId);
 						return;
 					}
-					global.setTimeout(() => {
-						this.fetchLiveChats(liveChatId, result.nextPageToken).then(resultsFetchLoop);
-					}, Math.max(result.pollingIntervalMillis, MIN_REQUEST_DELAY, getRequestDelay?.() ?? 0));
+					nextFetchLoop(result.nextPageToken);
 				}
 			};
-			this.fetchLiveChats(liveChatId, undefined, 1).then(resultsFetchLoop);
+			const nextFetchLoop = (nextPageToken?: string, minDelay = MIN_REQUEST_DELAY) => {
+				global.setTimeout(() => {
+					this.fetchLiveChats(liveChatId, nextPageToken).then(resultsFetchLoop, () => nextFetchLoop(nextPageToken, ERROR_REQUEST_DELAY));
+				}, Math.max(minDelay, getRequestDelay?.() ?? 0));
+			};
+			this.fetchLiveChats(liveChatId).then(resultsFetchLoop, () => nextFetchLoop(undefined, ERROR_REQUEST_DELAY));
 		}
+		console.log(`Current recording chats: ${Object.keys(MyYouTubeLiveChat.subjectCache).length}`);
 		return MyYouTubeLiveChat.subjectCache[liveChatId];
 	}
 
@@ -114,6 +119,7 @@ export class MyYouTubeLiveChat {
 		if (MyYouTubeLiveChat.subjectCache[liveChatId]) {
 			MyYouTubeLiveChat.subjectCache[liveChatId].complete();
 			delete MyYouTubeLiveChat.subjectCache[liveChatId];
+			console.log(`Current recording chats: ${Object.keys(MyYouTubeLiveChat.subjectCache).length}`);
 		}
 	}
 }

@@ -1,5 +1,7 @@
-import puppeteer, { Browser, BrowserLaunchArgumentOptions, HTTPRequest, HTTPResponse, LaunchOptions, Page } from "puppeteer";
+import fetch from "node-fetch";
+import puppeteer, { Browser, BrowserLaunchArgumentOptions, HTTPResponse, LaunchOptions, Page } from "puppeteer";
 import { Subject } from "rxjs";
+import { cache } from "./cache";
 import { fetchParser, YtcMessage } from "./ytc-fetch-parser";
 
 export class YtcHeadless {
@@ -38,7 +40,9 @@ export class YtcHeadless {
 			await page.goto(`https://www.youtube.com/live_chat?is_popout=1&v=${videoId}`, {
 				waitUntil: "load",
 			});
-			this.setReloadTimer(videoId);
+			const script = await getMemoryLeaksWorkaroundScript();
+			await page.evaluate(script);
+			// this.setReloadTimer(videoId);
 		}
 		return this.subjectCache[videoId];
 	}
@@ -66,4 +70,16 @@ export class YtcHeadless {
 			}
 		}, 30 * 60 * 1000);
 	};
+}
+
+async function getMemoryLeaksWorkaroundScript() {
+	const scriptUrl = "https://greasyfork.org/scripts/422206-workaround-for-youtube-chat-memory-leaks/code/Workaround%20For%20Youtube%20Chat%20Memory%20Leaks.user.js";
+	if (cache.has(scriptUrl)) {
+		return cache.get<string>(scriptUrl)!;
+	}
+	const res = await fetch(scriptUrl);
+	const script = await res.text();
+	cache.set(scriptUrl, script);
+	console.log(script);
+	return script;
 }

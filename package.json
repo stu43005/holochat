@@ -12,7 +12,10 @@
     "config": "^3.3.3",
     "cron": "^1.8.2",
     "discord.js": "^12.5.1",
+    "momentjs": "^2.0.0",
     "node-cache": "^5.1.2",
+    "printable-characters": "^1.0.42",
+    "puppeteer": "^8.0.0",
     "require-all": "^3.0.0",
     "youtube-live-chat-ts": "^0.2.4"
   },

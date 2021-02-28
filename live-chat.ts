@@ -1,23 +1,51 @@
 import Client from "@holores/holoapi";
-import { LiveLivestream } from "@holores/holoapi/dist/types";
+import { LiveLivestream, VideoBase } from "@holores/holoapi/dist/types";
 import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
+import moment from "moment";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
 import { getRealAmount, secondsToHms } from "./utils";
 import { MyYouTubeLiveChat } from "./youtube-live-chat";
+import { YtcMessage } from "./ytc-fetch-parser";
+import { YtcHeadless } from "./ytc-headless";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
 const holoapi = new Client();
 const ytchat = new MyYouTubeLiveChat(config.get<string>("google_api_key"));
+const ytcHeadless = new YtcHeadless({
+	headless: true,
+});
 const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<string>("discord_token"));
 
 const channels = config.has("channels") ? config.get<string[]>("channels") : [];
 
 export async function fetchChannel() {
 	const lives = await holoapi.videos.getLivestreams();
-	for (const live of lives.live) {
+	let now: VideoBase[] = [];
+	if (lives.live) {
+		now = now.concat(lives.live);
+	}
+	if (lives.upcoming) {
+		const t = moment();
+		for (const video of lives.upcoming) {
+			const startTime = moment(video.scheduledDate);
+			const r = startTime.subtract(10, "minute");
+			if (t.isSameOrAfter(r)) {
+				now.push(video);
+			}
+		}
+	}
+
+	const lived = cache.get<string[]>(KEY_YOUTUBE_LIVE_IDS) ?? [];
+	for (const videoId of lived) {
+		const live = now.find(l => l.youtubeId === videoId);
+		if (live) continue;
+		await ytcHeadless.stop(videoId);
+	}
+
+	for (const live of now) {
 		const videoId = live.youtubeId;
 		if (!videoId) continue;
 		if (channels.length && !channels.includes(live.channel.youtubeId)) continue; // Not in channel list
@@ -33,18 +61,21 @@ export async function fetchChannel() {
 
 async function startChatRecord(videoId: string) {
 	cache.sadd(KEY_YOUTUBE_LIVE_IDS, videoId);
-	const liveChatId = await ytchat.getLiveChatIdFromVideoId(videoId);
-	if (!liveChatId) return false;
+	// const liveChatId = await ytchat.getLiveChatIdFromVideoId(videoId);
+	// if (!liveChatId) return false;
 
-	ytchat.listen(liveChatId, () => {
-		const live = cache.get<LiveLivestream>(videoId);
-		if ((live?.viewers ?? 0) >= 10000) return 10 * 1000;
-		return 60 * 1000;
-	}).subscribe(
+	// const observe = ytchat.listen(liveChatId, () => {
+	// 	const live = cache.get<LiveLivestream>(videoId);
+	// 	const viewers = live?.viewers ?? 0;
+	// 	return 120000 - viewers * 2;
+	// });
+	const observe = await ytcHeadless.listen(videoId);
+	observe.subscribe(
 		chatMessage => {
 			const live = cache.get<LiveLivestream>(videoId);
 			if (live) {
 				parseMessage(live, chatMessage);
+				reportMessageCount(live, chatMessage);
 			}
 		},
 		error => {
@@ -53,14 +84,22 @@ async function startChatRecord(videoId: string) {
 		() => {
 			cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
 			console.log(`Stop record: ${videoId}`);
+			logChatsCount();
 		}
 	);
 	console.log(`Start record: ${videoId}`);
+	logChatsCount();
 }
 
-function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage) {
+function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {
 	const videoId = live.youtubeId;
 	const userName = message.authorDetails.displayName;
+	const userDetail: string[] = [
+		...(message.authorDetails.isChatOwner ? ["Owner"] : []),
+		...(message.authorDetails.isChatModerator ? ["Moderator"] : []),
+		...(message.authorDetails.isVerified ? ["Verified"] : []),
+		...(message.authorDetails.isChatSponsor ? ["Sponsor"] : []),
+	];
 	const publishedAt = new Date(message.snippet.publishedAt);
 	const isBeforeStream = !live.startDate || live.startDate > publishedAt;
 	const time = isBeforeStream ? 0 : Math.floor((publishedAt.getTime() - live.startDate.getTime()) / 1000);
@@ -69,40 +108,43 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage) {
 	let log = false;
 	let content = "";
 	let amountDisplayString = "￥0";
-	let amountMicros = 0;
-	let currency = "";
+	// let amountMicros = 0;
+	// let currency = "";
 
 	switch (message.snippet.type) {
-		case "newSponsorEvent":
-			content = (message.snippet as any).displayMessage ?? "";
-			break;
+		// case "newSponsorEvent":
+		// 	content = (message.snippet as any).displayMessage ?? "";
+		// 	break;
 		case "superChatEvent":
 			amountDisplayString = message.snippet.superChatDetails.amountDisplayString;
-			amountMicros = message.snippet.superChatDetails.amountMicros;
-			currency = message.snippet.superChatDetails.currency;
+			// amountMicros = message.snippet.superChatDetails.amountMicros;
+			// currency = message.snippet.superChatDetails.currency;
 			content = `${message.snippet.superChatDetails.userComment ?? ""} (${amountDisplayString}, ${message.snippet.superChatDetails.tier})`;
 			break;
-		case "superStickerEvent":
-			amountDisplayString = message.snippet.superStickerDetails.amountDisplayString;
-			amountMicros = message.snippet.superStickerDetails.amountMicros;
-			currency = message.snippet.superStickerDetails.currency;
-			content = `${message.snippet.superStickerDetails.superStickerMetadata.altText ?? ""} (${amountDisplayString}, ${message.snippet.superStickerDetails.tier})`;
-			break;
+		// case "superStickerEvent":
+		// 	amountDisplayString = message.snippet.superStickerDetails.amountDisplayString;
+		// 	amountMicros = message.snippet.superStickerDetails.amountMicros;
+		// 	currency = message.snippet.superStickerDetails.currency;
+		// 	content = `${message.snippet.superStickerDetails.superStickerMetadata.altText ?? ""} (${amountDisplayString}, ${message.snippet.superStickerDetails.tier})`;
+		// 	break;
 		case "textMessageEvent":
 			content = message.snippet.textMessageDetails.messageText;
 			if (message.authorDetails.isChatOwner || message.authorDetails.isChatModerator) log = true;
 			break;
 	}
 
-	const realAmount = getRealAmount(amountMicros, currency);
-
+	// const realAmount = getRealAmount(amountMicros, currency);
 	if (log) {
-		console.log(`[${videoId}][${timeCode}] ${userName}: ${content}`);
-		postDiscord(live, message, content, time);
+		console.log(`[${videoId}][${timeCode}] ${userName}${userDetail.length ? `(${userDetail.join(",")})` : ""}: ${content}`);
+
+		if (channels.length && !channels.includes(message.authorDetails.channelId)) log = false;
+		if (log) {
+			postDiscord(live, message, content, time);
+		}
 	}
 }
 
-function postDiscord(live: LiveLivestream, chatMessage: YouTubeLiveChatMessage, content: string, time: number) {
+function postDiscord(live: LiveLivestream, chatMessage: YouTubeLiveChatMessage | YtcMessage, content: string, time: number) {
 	const message = new MessageEmbed();
 	message.setAuthor(chatMessage.authorDetails.displayName, chatMessage.authorDetails.profileImageUrl, chatMessage.authorDetails.channelUrl);
 	message.setTitle(`To ${live.channel.name} • At ${secondsToHms(time)}`);
@@ -116,20 +158,20 @@ function postDiscord(live: LiveLivestream, chatMessage: YouTubeLiveChatMessage, 
 	return webhook.send(message);
 }
 
-function getEmbedColor(message: YouTubeLiveChatMessage) {
+function getEmbedColor(message: YouTubeLiveChatMessage | YtcMessage) {
 	if (message.authorDetails.isChatOwner || message.authorDetails.isChatModerator) {
 		return 0x5e84f1; // 板手
 	}
 	let tier = 0;
 	switch (message.snippet.type) {
-		case "newSponsorEvent":
-			return 0x0f9d58; // 深綠
+		// case "newSponsorEvent":
+		// 	return 0x0f9d58; // 深綠
 		case "superChatEvent":
 			tier = message.snippet.superChatDetails.tier;
 			break;
-		case "superStickerEvent":
-			tier = message.snippet.superStickerDetails.tier;
-			break;
+		// case "superStickerEvent":
+		// 	tier = message.snippet.superStickerDetails.tier;
+		// 	break;
 	}
 	switch (tier) {
 		case 1:
@@ -150,3 +192,27 @@ function getEmbedColor(message: YouTubeLiveChatMessage) {
 	}
 }
 
+function logChatsCount() {
+	global.setTimeout(() => {
+		console.log(`Current recording chats: ${ytcHeadless.count()}`);
+		setProcessTitle();
+	}, 10);
+}
+
+let messageCount = 0;
+
+function reportMessageCount(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {
+	messageCount++;
+	setProcessTitle();
+}
+
+let setProcessTitleTimer: NodeJS.Timeout | null = null;
+
+function setProcessTitle() {
+	if (!setProcessTitleTimer) {
+		setProcessTitleTimer = global.setTimeout(() => {
+			process.title = `[${ytcHeadless.count()} chats][${messageCount} messages]`;
+			setProcessTitleTimer = null;
+		}, 1000);
+	}
+}

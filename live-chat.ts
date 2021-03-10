@@ -206,9 +206,11 @@ function logChatsCount() {
 }
 
 let messageCount = 0;
+const messageCountByChat: Record<string, number> = {};
 
 function reportMessageCount(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {
 	messageCount++;
+	if (live.youtubeId) messageCountByChat[live.youtubeId] = (messageCountByChat[live.youtubeId] ?? 0) + 1;
 	setProcessTitle();
 }
 
@@ -219,6 +221,30 @@ function setProcessTitle() {
 		setProcessTitleTimer = global.setTimeout(() => {
 			process.title = `[${ytcHeadless.count()} chats][${messageCount} messages]`;
 			setProcessTitleTimer = null;
+			printTable();
 		}, 1000);
 	}
+}
+
+function printTable() {
+	const table: {
+		Channel: string;
+		VideoID: string;
+		Title: string;
+		MessageCount: number;
+	}[] = [];
+
+	for (const videoId of Object.keys(messageCountByChat)) {
+		const live = cache.get<LiveLivestream>(videoId);
+		if (live && cache.sismember(KEY_YOUTUBE_LIVE_IDS, videoId)) {
+			table.push({
+				Channel: live.channel.name,
+				VideoID: videoId,
+				Title: live.title.substr(0, 15),
+				MessageCount: messageCountByChat[videoId],
+			});
+		}
+	}
+
+	console.table(table);
 }

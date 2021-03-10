@@ -5,7 +5,7 @@ import { MessageEmbed, WebhookClient } from "discord.js";
 import moment from "moment";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
-import { getRealAmount, secondsToHms } from "./utils";
+import { secondsToHms } from "./utils";
 import { MyYouTubeLiveChat } from "./youtube-live-chat";
 import { YtcMessage } from "./ytc-fetch-parser";
 import { YtcHeadless } from "./ytc-headless";
@@ -20,6 +20,10 @@ const ytcHeadless = new YtcHeadless({
 const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<string>("discord_token"));
 
 const channels = config.has("channels") ? config.get<string[]>("channels") : [];
+
+function delay(sec: number) {
+	return new Promise((resolve) => global.setTimeout(resolve, sec));
+}
 
 export async function fetchChannel() {
 	const lives = await holoapi.videos.getLivestreams();
@@ -53,9 +57,11 @@ export async function fetchChannel() {
 		cache.set(videoId, live);
 		if (cache.sismember(KEY_YOUTUBE_LIVE_IDS, videoId)) continue; // already started
 
-		return startChatRecord(videoId).catch(error => {
+		startChatRecord(videoId).catch(error => {
 			console.error(`Start record error: ${videoId}:`, error.toString());
 		});
+
+		await delay(1000);
 	}
 }
 

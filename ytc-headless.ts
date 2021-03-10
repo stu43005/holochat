@@ -1,5 +1,5 @@
 import fetch from "node-fetch";
-import puppeteer, { Browser, BrowserLaunchArgumentOptions, HTTPResponse, LaunchOptions, Page } from "puppeteer";
+import puppeteer, { Browser, BrowserLaunchArgumentOptions, HTTPRequest, HTTPResponse, LaunchOptions, Page } from "puppeteer";
 import { Subject } from "rxjs";
 import { cache } from "./cache";
 import { fetchParser, YtcMessage } from "./ytc-fetch-parser";
@@ -21,12 +21,23 @@ export class YtcHeadless {
 			if (!this.browser) {
 				this.browser = await puppeteer.launch(this.puppeteerOptions);
 			}
+
 			const page = await this.browser.newPage();
 			this.pages[videoId] = page;
-			page.on("response", async (interceptedRequest: HTTPResponse) => {
-				const url = interceptedRequest.url();
+
+			await page.setRequestInterception(true);
+			page.on("request", (interceptedRequest: HTTPRequest) => {
+				if (interceptedRequest.url().includes(".ggpht.com")) {
+					interceptedRequest.abort();
+				}
+				else {
+					interceptedRequest.continue();
+				}
+			});
+			page.on("response", async (interceptedResponse: HTTPResponse) => {
+				const url = interceptedResponse.url();
 				if (url.includes("live_chat/get_live_chat")) {
-					const text = await interceptedRequest.text();
+					const text = await interceptedResponse.text();
 					if (text) {
 						const messages = fetchParser(text);
 						for (const msg of messages) {
@@ -35,14 +46,34 @@ export class YtcHeadless {
 					}
 				}
 			});
+
 			const originUserAgent = await this.browser.userAgent();
 			await page.setUserAgent(originUserAgent.replace("HeadlessChrome", "Chrome"));
+
 			await page.goto(`https://www.youtube.com/live_chat?is_popout=1&v=${videoId}`, {
 				waitUntil: "load",
 			});
-			const script = await getMemoryLeaksWorkaroundScript();
-			await page.evaluate(script);
-			// this.setReloadTimer(videoId);
+
+			try {
+				const script = await getMemoryLeaksWorkaroundScript();
+				await page.evaluate(script);
+				await page.evaluate(`
+					function test() {
+						if (document.querySelector('yt-live-chat-item-list-renderer')) {
+							document.querySelector('yt-live-chat-item-list-renderer').__data.data.maxItemsToDisplay = 0;
+							document.querySelector('yt-live-chat-item-list-renderer').__proto__.stampDom.visibleItems.mapping = {};
+							document.querySelector('yt-live-chat-item-list-renderer').__proto__.stampDomArraySplices_ = () => {};
+						}
+						else {
+							setTimeout(() => test(), 1000);
+						}
+					}
+					test();
+				`);
+			}
+			catch (error) {
+				console.error(`Get MemoryLeaksWorkaround script error: ${error}`);
+			}
 		}
 		return this.subjectCache[videoId];
 	}
@@ -61,15 +92,6 @@ export class YtcHeadless {
 			}
 		}
 	}
-
-	private setReloadTimer(videoId: string) {
-		global.setTimeout(async () => {
-			if (this.pages[videoId]) {
-				await this.pages[videoId].reload();
-				this.setReloadTimer(videoId);
-			}
-		}, 30 * 60 * 1000);
-	};
 }
 
 async function getMemoryLeaksWorkaroundScript() {

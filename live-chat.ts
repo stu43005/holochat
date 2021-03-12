@@ -9,14 +9,16 @@ import { secondsToHms } from "./utils";
 import { MyYouTubeLiveChat } from "./youtube-live-chat";
 import { YtcMessage } from "./ytc-fetch-parser";
 import { YtcHeadless } from "./ytc-headless";
+import { YtcNoChrome } from "./ytc-nochrome";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
 const holoapi = new Client();
-const ytchat = new MyYouTubeLiveChat(config.get<string>("google_api_key"));
-const ytcHeadless = new YtcHeadless({
-	headless: true,
-});
+// const ytchat = new MyYouTubeLiveChat(config.get<string>("google_api_key"));
+// const ytcHeadless = new YtcHeadless({
+// 	headless: true,
+// });
+const ytcHeadless = new YtcNoChrome();
 const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<string>("discord_token"));
 
 const channels = config.has("channels") ? config.get<string[]>("channels") : [];
@@ -86,14 +88,21 @@ async function startChatRecord(videoId: string) {
 		},
 		error => {
 			console.error(error);
+			if (!`${error}`.includes("很抱歉，聊天室目前無法使用")) {
+				stopChatRecord(videoId);
+			}
 		},
 		() => {
-			cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
-			console.log(`Stop record: ${videoId}`);
-			logChatsCount();
+			stopChatRecord(videoId);
 		}
 	);
 	console.log(`Start record: ${videoId}`);
+	logChatsCount();
+}
+
+function stopChatRecord(videoId: string) {
+	cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
+	console.log(`Stop record: ${videoId}`);
 	logChatsCount();
 }
 
@@ -246,5 +255,5 @@ function printTable() {
 		}
 	}
 
-	console.table(table);
+	if (table.length) console.table(table);
 }

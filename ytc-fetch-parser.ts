@@ -18,8 +18,7 @@ const toMessage = (messages: LiveChatTextMessageRun[] = []) => {
 	);
 };
 
-export const fetchParser = (text: string) => {
-	const json = JSON.parse(text);
+export const fetchParser = (json: any) => {
 	const result: YtcMessage[] = [];
 	try {
 		if (json.continuationContents?.liveChatContinuation.actions) {
@@ -118,7 +117,7 @@ export const fetchParser = (text: string) => {
 						result.push(msg);
 					}
 					catch (e) {
-						console.error("[ytc] Failed retrieving message informations:", text);
+						console.error("[ytc] Failed retrieving message informations:", json);
 						console.error(chatMessage);
 						console.error(e);
 					}
@@ -133,7 +132,7 @@ export const fetchParser = (text: string) => {
 		}
 	}
 	catch (e) {
-		console.error("[ytc] Fetch interceptor failed parsing:", text);
+		console.error("[ytc] Fetch interceptor failed parsing:", json);
 		console.error(e);
 	}
 	return result;

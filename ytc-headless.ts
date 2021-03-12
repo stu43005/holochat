@@ -39,7 +39,8 @@ export class YtcHeadless {
 				if (url.includes("live_chat/get_live_chat")) {
 					const text = await interceptedResponse.text();
 					if (text) {
-						const messages = fetchParser(text);
+						const json = JSON.parse(text);
+						const messages = fetchParser(json);
 						for (const msg of messages) {
 							this.subjectCache[videoId].next(msg);
 						}

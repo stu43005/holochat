@@ -2,6 +2,7 @@ import { CronJob } from "cron";
 import path from "path";
 import requireAll from "require-all";
 import { fetchChannel } from "./live-chat";
+import express, { NextFunction, Request, Response } from "express";
 
 // process event handle
 process
@@ -28,3 +29,15 @@ Object.values(jobs).forEach(job => {
 });
 
 fetchChannel();
+
+// init express server
+const app = express();
+app.get("/", (req, res) => {
+	res.status(200).json({
+		ok: true,
+	});
+});
+const listener = app.listen(process.env.PORT || 8080, () => {
+	const addr = listener.address();
+	console.log("Your app is listening on port " + (typeof addr === "string" ? addr : addr?.port));
+});

@@ -90,6 +90,7 @@ async function startChatRecord(videoId: string) {
 			console.error(error);
 			if (!`${error}`.includes("很抱歉，聊天室目前無法使用")) {
 				stopChatRecord(videoId);
+				ytcHeadless.stop(videoId);
 			}
 		},
 		() => {

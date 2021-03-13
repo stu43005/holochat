@@ -18,12 +18,14 @@
     "discord.js": "^12.5.1",
     "express": "^4.17.1",
     "lodash": "^4.17.21",
-    "momentjs": "^2.0.0",
+    "moment": "^2.29.1",
     "node-cache": "^5.1.2",
     "node-fetch": "^2.6.1",
     "printable-characters": "^1.0.42",
+    "prom-client": "^13.1.0",
     "puppeteer": "^8.0.0",
     "require-all": "^3.0.0",
+    "rxjs": "^6.6.6",
     "youtube-live-chat-ts": "^0.2.4"
   },
   "devDependencies": {

@@ -79,14 +79,14 @@ async function startChatRecord(videoId: string) {
 	// });
 	const observe = await ytcHeadless.listen(videoId);
 	observe.subscribe(
-		chatMessage => {
+		(chatMessage: YtcMessage) => {
 			const live = cache.get<LiveLivestream>(videoId);
 			if (live) {
 				parseMessage(live, chatMessage);
 				reportMessageCount(live, chatMessage);
 			}
 		},
-		error => {
+		(error: any) => {
 			console.error(error);
 			if (!`${error}`.includes("很抱歉，聊天室目前無法使用")) {
 				stopChatRecord(videoId);

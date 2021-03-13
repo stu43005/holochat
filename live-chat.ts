@@ -236,7 +236,7 @@ function setProcessTitle() {
 	}
 }
 
-function printTable() {
+export function getStatistics() {
 	const table: {
 		Channel: string;
 		VideoID: string;
@@ -256,5 +256,10 @@ function printTable() {
 		}
 	}
 
+	return table;
+}
+
+function printTable() {
+	const table = getStatistics();
 	if (table.length) console.table(table);
 }

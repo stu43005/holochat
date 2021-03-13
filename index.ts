@@ -1,7 +1,7 @@
 import { CronJob } from "cron";
 import path from "path";
 import requireAll from "require-all";
-import { fetchChannel } from "./live-chat";
+import { fetchChannel, getStatistics } from "./live-chat";
 import express, { NextFunction, Request, Response } from "express";
 
 // process event handle
@@ -33,8 +33,10 @@ fetchChannel();
 // init express server
 const app = express();
 app.get("/", (req, res) => {
+	const table = getStatistics();
 	res.status(200).json({
 		ok: true,
+		statistics: table,
 	});
 });
 const listener = app.listen(process.env.PORT || 8080, () => {

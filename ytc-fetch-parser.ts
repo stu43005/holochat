@@ -4,18 +4,35 @@ const convertTimestampUsec = (timestampUsec: string) => {
 	return new Date(timestamp).toISOString();
 };
 
-const toMessage = (messages: LiveChatTextMessageRun[] = []) => {
-	return (
-		messages.reduce((acc, msg) => {
-			if (msg.text) {
-				return acc + msg.text;
+const urlRegex = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()!@:%_\+.~#?&\/\/=]*)/;
+const getNavigationEndpointUrl = (navigationEndpoint: string | NavigationEndpoint | Record<string, any>): string | undefined => {
+	if (!navigationEndpoint) return;
+	if (typeof navigationEndpoint === "string") {
+		if (urlRegex.test(navigationEndpoint)) return navigationEndpoint;
+		return;
+	}
+	if (navigationEndpoint?.urlEndpoint?.url) return navigationEndpoint?.urlEndpoint?.url;
+	return Object.values(navigationEndpoint).find(element => getNavigationEndpointUrl(element));
+};
+
+const toMessage = (message: LiveChatTextMessage) => {
+	if (message?.simpleText) return message.simpleText;
+	if (!message?.runs) return "";
+	return message.runs.reduce((acc, msg) => {
+		if (msg.emoji) {
+			return acc + msg.emoji.shortcuts.reverse()[0];
+		}
+		if (msg.text) {
+			if (msg.navigationEndpoint) {
+				const url = getNavigationEndpointUrl(msg.navigationEndpoint);
+				if (url) {
+					return acc + `[${msg.text}](${url})`;
+				}
 			}
-			else if (msg.emoji) {
-				return acc + msg.emoji.shortcuts.reverse()[0];
-			}
-			return acc;
-		}, "") || ""
-	);
+			return acc + msg.text;
+		}
+		return acc;
+	}, "");
 };
 
 export const fetchParser = (json: any) => {
@@ -37,7 +54,7 @@ export const fetchParser = (json: any) => {
 								type: "superChatEvent",
 								superChatDetails: {
 									amountDisplayString: chatMessage.purchaseAmountText.simpleText,
-									userComment: toMessage(chatMessage.message?.runs),
+									userComment: toMessage(chatMessage.message),
 									tier: 0,
 								},
 								publishedAt: convertTimestampUsec(chatMessage.timestampUsec),
@@ -68,7 +85,7 @@ export const fetchParser = (json: any) => {
 							snippet = superChat;
 						}
 						else {
-							const message = toMessage(chatMessage.message?.runs);
+							const message = toMessage(chatMessage.message);
 							const textMessage: YtcMessageTextMessage = {
 								type: "textMessageEvent",
 								displayMessage: message,
@@ -255,13 +272,23 @@ interface LiveChatAuthorPhotoThumbnail {
 
 interface LiveChatTextMessage {
 	runs: LiveChatTextMessageRun[];
+	simpleText?: string;
 }
 
 type LiveChatTextMessageRun = LiveChatTextMessageText | LiveChatTextMessageEmoji;
 
 interface LiveChatTextMessageText {
 	text: string;
+	navigationEndpoint?: string | NavigationEndpoint;
 	emoji: undefined;
+}
+
+interface NavigationEndpoint {
+	urlEndpoint: UrlEndpoint
+}
+
+interface UrlEndpoint {
+	url: string;
 }
 
 interface LiveChatTextMessageEmoji {

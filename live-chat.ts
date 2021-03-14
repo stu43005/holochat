@@ -5,11 +5,9 @@ import { MessageEmbed, WebhookClient } from "discord.js";
 import moment from "moment";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
-import { counterModeratorMessages, counterReceiveMessages } from "./metrics";
+import { counterModeratorMessages, counterReceiveMessages, getVideoLabel, initVideoMetrics, removeVideoMetrics, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
-import { MyYouTubeLiveChat } from "./youtube-live-chat";
 import { YtcMessage } from "./ytc-fetch-parser";
-import { YtcHeadless } from "./ytc-headless";
 import { YtcNoChrome } from "./ytc-nochrome";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
@@ -50,6 +48,7 @@ export async function fetchChannel() {
 		const live = now.find(l => l.youtubeId === videoId);
 		if (live) continue;
 		await ytcHeadless.stop(videoId);
+		stopChatRecord(videoId);
 	}
 
 	for (const live of now) {
@@ -70,6 +69,9 @@ export async function fetchChannel() {
 
 async function startChatRecord(videoId: string) {
 	cache.sadd(KEY_YOUTUBE_LIVE_IDS, videoId);
+	const live = cache.get<LiveLivestream>(videoId);
+	if (live) initVideoMetrics(live);
+
 	// const liveChatId = await ytchat.getLiveChatIdFromVideoId(videoId);
 	// if (!liveChatId) return false;
 
@@ -78,6 +80,7 @@ async function startChatRecord(videoId: string) {
 	// 	const viewers = live?.viewers ?? 0;
 	// 	return 120000 - viewers * 2;
 	// });
+
 	const observe = await ytcHeadless.listen(videoId);
 	observe.subscribe(
 		(chatMessage: YtcMessage) => {
@@ -89,7 +92,10 @@ async function startChatRecord(videoId: string) {
 		},
 		(error: any) => {
 			console.error(error);
-			if (!`${error}`.includes("很抱歉，聊天室目前無法使用")) {
+			if (`${error}`.includes("很抱歉，聊天室目前無法使用")) {
+				stopChatRecord(videoId, false);
+			}
+			else {
 				stopChatRecord(videoId);
 				ytcHeadless.stop(videoId);
 			}
@@ -102,26 +108,13 @@ async function startChatRecord(videoId: string) {
 	logChatsCount();
 }
 
-function stopChatRecord(videoId: string) {
-	cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
+function stopChatRecord(videoId: string, remove = true) {
+	if (remove) cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
 	console.log(`Stop record: ${videoId}`);
 	logChatsCount();
 
 	const live = cache.get<LiveLivestream>(videoId);
-	if (live) {
-		counterReceiveMessages.remove({
-			channelId: live.channel.youtubeId,
-			channelName: live.channel.name,
-			videoId: live.youtubeId,
-			title: live.title,
-		});
-		counterModeratorMessages.remove({
-			channelId: live.channel.youtubeId,
-			channelName: live.channel.name,
-			videoId: live.youtubeId,
-			title: live.title,
-		});
-	}
+	if (live) removeVideoMetrics(live);
 }
 
 function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {
@@ -174,12 +167,7 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 		if (log) {
 			postDiscord(live, message, content, time);
 
-			counterModeratorMessages.labels({
-				channelId: live.channel.youtubeId,
-				channelName: live.channel.name,
-				videoId: live.youtubeId,
-				title: live.title,
-			}).inc(1);
+			counterModeratorMessages.labels(getVideoLabel(live)).inc(1);
 		}
 	}
 }
@@ -246,12 +234,8 @@ function reportMessageCount(live: LiveLivestream, message: YouTubeLiveChatMessag
 	messageCount++;
 	if (live.youtubeId) {
 		messageCountByChat[live.youtubeId] = (messageCountByChat[live.youtubeId] ?? 0) + 1;
-		counterReceiveMessages.labels({
-			channelId: live.channel.youtubeId,
-			channelName: live.channel.name,
-			videoId: live.youtubeId,
-			title: live.title,
-		}).inc(1);
+		counterReceiveMessages.labels(getVideoLabel(live)).inc(1);
+		updateVideoMetrics(live);
 	}
 	setProcessTitle();
 }

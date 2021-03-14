@@ -5,6 +5,7 @@ import { MessageEmbed, WebhookClient } from "discord.js";
 import moment from "moment";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
+import { counterModeratorMessages, counterReceiveMessages } from "./metrics";
 import { secondsToHms } from "./utils";
 import { MyYouTubeLiveChat } from "./youtube-live-chat";
 import { YtcMessage } from "./ytc-fetch-parser";
@@ -105,6 +106,22 @@ function stopChatRecord(videoId: string) {
 	cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
 	console.log(`Stop record: ${videoId}`);
 	logChatsCount();
+
+	const live = cache.get<LiveLivestream>(videoId);
+	if (live) {
+		counterReceiveMessages.remove({
+			channelId: live.channel.youtubeId,
+			channelName: live.channel.name,
+			videoId: live.youtubeId,
+			title: live.title,
+		});
+		counterModeratorMessages.remove({
+			channelId: live.channel.youtubeId,
+			channelName: live.channel.name,
+			videoId: live.youtubeId,
+			title: live.title,
+		});
+	}
 }
 
 function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {
@@ -156,6 +173,13 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 		if (channels.length && !channels.includes(message.authorDetails.channelId)) log = false;
 		if (log) {
 			postDiscord(live, message, content, time);
+
+			counterModeratorMessages.labels({
+				channelId: live.channel.youtubeId,
+				channelName: live.channel.name,
+				videoId: live.youtubeId,
+				title: live.title,
+			}).inc(1);
 		}
 	}
 }
@@ -220,7 +244,15 @@ const messageCountByChat: Record<string, number> = {};
 
 function reportMessageCount(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {
 	messageCount++;
-	if (live.youtubeId) messageCountByChat[live.youtubeId] = (messageCountByChat[live.youtubeId] ?? 0) + 1;
+	if (live.youtubeId) {
+		messageCountByChat[live.youtubeId] = (messageCountByChat[live.youtubeId] ?? 0) + 1;
+		counterReceiveMessages.labels({
+			channelId: live.channel.youtubeId,
+			channelName: live.channel.name,
+			videoId: live.youtubeId,
+			title: live.title,
+		}).inc(1);
+	}
 	setProcessTitle();
 }
 

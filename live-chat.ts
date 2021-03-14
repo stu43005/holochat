@@ -5,7 +5,7 @@ import { MessageEmbed, WebhookClient } from "discord.js";
 import moment from "moment";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
-import { counterModeratorMessages, counterReceiveMessages, getVideoLabel, initVideoMetrics, removeVideoMetrics, updateVideoMetrics } from "./metrics";
+import { addMessageMetrics, initVideoMetrics, removeVideoMetrics, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
 import { YtcMessage } from "./ytc-fetch-parser";
 import { YtcNoChrome } from "./ytc-nochrome";
@@ -87,7 +87,6 @@ async function startChatRecord(videoId: string) {
 			const live = cache.get<LiveLivestream>(videoId);
 			if (live) {
 				parseMessage(live, chatMessage);
-				reportMessageCount(live, chatMessage);
 			}
 		},
 		(error: any) => {
@@ -126,6 +125,7 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 		...(message.authorDetails.isVerified ? ["Verified"] : []),
 		...(message.authorDetails.isChatSponsor ? ["Sponsor"] : []),
 	];
+	const marked = !!(channels.length && channels.includes(message.authorDetails.channelId));
 	const publishedAt = new Date(message.snippet.publishedAt);
 	const isBeforeStream = !live.startDate || live.startDate > publishedAt;
 	const time = isBeforeStream ? 0 : Math.floor((publishedAt.getTime() - live.startDate.getTime()) / 1000);
@@ -138,9 +138,9 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 	// let currency = "";
 
 	switch (message.snippet.type) {
-		// case "newSponsorEvent":
-		// 	content = (message.snippet as any).displayMessage ?? "";
-		// 	break;
+		case "newSponsorEvent":
+			content = (message.snippet as any).displayMessage ?? "";
+			break;
 		case "superChatEvent":
 			amountDisplayString = message.snippet.superChatDetails.amountDisplayString;
 			// amountMicros = message.snippet.superChatDetails.amountMicros;
@@ -163,13 +163,14 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 	if (log) {
 		console.log(`[${videoId}][${timeCode}] ${userName}${userDetail.length ? `(${userDetail.join(",")})` : ""}: ${content}`);
 
-		if (channels.length && !channels.includes(message.authorDetails.channelId)) log = false;
+		if (!marked) log = false;
 		if (log) {
 			postDiscord(live, message, content, time);
-
-			counterModeratorMessages.labels(getVideoLabel(live)).inc(1);
 		}
 	}
+
+	addMessageMetrics(live, message, marked);
+	reportMessageCount(live, message);
 }
 
 function postDiscord(live: LiveLivestream, chatMessage: YouTubeLiveChatMessage | YtcMessage, content: string, time: number) {
@@ -234,7 +235,6 @@ function reportMessageCount(live: LiveLivestream, message: YouTubeLiveChatMessag
 	messageCount++;
 	if (live.youtubeId) {
 		messageCountByChat[live.youtubeId] = (messageCountByChat[live.youtubeId] ?? 0) + 1;
-		counterReceiveMessages.labels(getVideoLabel(live)).inc(1);
 		updateVideoMetrics(live);
 	}
 	setProcessTitle();

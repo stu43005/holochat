@@ -44,22 +44,25 @@ export const fetchParser = (json: any) => {
 					action = action.replayChatItemAction.actions[0];
 				}
 
-				const chatMessage: LiveChatTextMessageRenderer | LiveChatPaidMessageRenderer = action?.addChatItemAction?.item?.liveChatTextMessageRenderer || action?.addChatItemAction?.item?.liveChatPaidMessageRenderer;
+				const textRenderer: LiveChatTextMessageRenderer | undefined = action?.addChatItemAction?.item?.liveChatTextMessageRenderer;
+				const paidMessageRenderer: LiveChatPaidMessageRenderer | undefined = action?.addChatItemAction?.item?.liveChatPaidMessageRenderer;
+				const membershipItemRenderer: LiveChatMembershipItemRenderer | undefined = action?.addChatItemAction?.item?.liveChatMembershipItemRenderer;
+				const chatMessage = textRenderer || paidMessageRenderer || membershipItemRenderer;
 
 				if (chatMessage) {
 					try {
-						let snippet: YtcMessageSnippet;
-						if (chatMessage.purchaseAmountText) {
+						let snippet: YtcMessageSnippet | undefined;
+						if (paidMessageRenderer) {
 							const superChat: YtcMessageSuperChat = {
 								type: "superChatEvent",
 								superChatDetails: {
-									amountDisplayString: chatMessage.purchaseAmountText.simpleText,
-									userComment: toMessage(chatMessage.message),
+									amountDisplayString: paidMessageRenderer.purchaseAmountText.simpleText,
+									userComment: toMessage(paidMessageRenderer.message),
 									tier: 0,
 								},
-								publishedAt: convertTimestampUsec(chatMessage.timestampUsec),
+								publishedAt: convertTimestampUsec(paidMessageRenderer.timestampUsec),
 							};
-							switch (chatMessage.bodyBackgroundColor) {
+							switch (paidMessageRenderer.bodyBackgroundColor) {
 								case 4280191205:
 									superChat.superChatDetails.tier = 1;
 									break;
@@ -84,8 +87,17 @@ export const fetchParser = (json: any) => {
 							}
 							snippet = superChat;
 						}
-						else {
-							const message = toMessage(chatMessage.message);
+						else if (membershipItemRenderer) {
+							const message = toMessage(membershipItemRenderer.headerSubtext);
+							const newSponsor: YtcMessageNewSponsor = {
+								type: "newSponsorEvent",
+								displayMessage: message,
+								publishedAt: convertTimestampUsec(chatMessage.timestampUsec),
+							};
+							snippet = newSponsor;
+						}
+						else if (textRenderer) {
+							const message = toMessage(textRenderer.message);
 							const textMessage: YtcMessageTextMessage = {
 								type: "textMessageEvent",
 								displayMessage: message,
@@ -96,6 +108,7 @@ export const fetchParser = (json: any) => {
 							};
 							snippet = textMessage;
 						}
+						if (!snippet) continue;
 						const msg: YtcMessage = {
 							id: chatMessage.id,
 							authorDetails: {
@@ -175,7 +188,7 @@ export interface YtcMessageSnippetBase {
 	publishedAt: string;
 }
 
-type YtcMessageSnippet = YtcMessageTextMessage | YtcMessageSuperChat;
+type YtcMessageSnippet = YtcMessageTextMessage | YtcMessageSuperChat | YtcMessageNewSponsor;
 
 export interface YtcMessageTextMessage extends YtcMessageSnippetBase {
 	type: "textMessageEvent";
@@ -192,6 +205,11 @@ export interface YtcMessageSuperChat extends YtcMessageSnippetBase {
 		userComment: string;
 		tier: number;
 	};
+}
+
+export interface YtcMessageNewSponsor extends YtcMessageSnippetBase {
+	type: "newSponsorEvent";
+	displayMessage: string;
 }
 
 interface LiveChatTextMessageRenderer {
@@ -226,6 +244,18 @@ interface LiveChatPaidMessageRenderer {
 	bodyBackgroundColor: number;
 	bodyTextColor: number;
 	timestampColor: number;
+}
+
+interface LiveChatMembershipItemRenderer {
+	id: string;
+	timestampUsec: string;
+
+	authorName: LiveChatSimpleText;
+	authorPhoto: LiveChatAuthorPhoto;
+	authorExternalChannelId: string;
+	authorBadges: LiveChatAuthorBadge[];
+
+	headerSubtext: LiveChatTextMessage;
 }
 
 interface LiveChatAuthorBadge {

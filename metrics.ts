@@ -1,35 +1,68 @@
 import { LiveLivestream } from "@holores/holoapi/dist/types";
 import { Counter, Gauge } from "prom-client";
+import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
+import { YtcMessage } from "./ytc-fetch-parser";
 
 const videoLabels = ["channelId", "channelName", "videoId", "title"] as const;
 
-export const counterReceiveMessages = new Counter({
+interface VideoLabel {
+	channelId: string;
+	channelName: string;
+	videoId: string;
+	title: string;
+}
+
+const enum MessageType {
+	NewSponsor = "newSponsor",
+	SuperChat = "superChat",
+	SuperSticker = "superSticker",
+	TextMessage = "textMessage",
+	Other = "other",
+}
+
+const enum MessageAuthorType {
+	Owner = "owner",
+	Marked = "marked",
+	Moderator = "moderator",
+	Sponsor = "sponsor",
+	Verified = "verified",
+	Other = "other",
+}
+
+interface MessageLabel extends VideoLabel {
+	type: MessageType;
+	authorType: MessageAuthorType;
+}
+
+const counterReceiveMessages = new Counter({
 	name: "holochat_receive_messages",
 	help: "Number of received chat messages",
+	labelNames: [...videoLabels, "type", "authorType"],
+});
+
+const messageLabels: Record<string, MessageLabel[]> = {};
+
+const gaugeSuperChatValue = new Gauge({
+	name: "holochat_super_chat_value",
+	help: "Sum of super chat value",
 	labelNames: videoLabels,
 });
 
-export const counterModeratorMessages = new Counter({
-	name: "holochat_moderator_messages",
-	help: "Number of received moderator messages",
-	labelNames: videoLabels,
-});
-
-export const videoViewers = new Gauge({
+const videoViewers = new Gauge({
 	name: "holochat_video_viewers",
 	help: "Number of viedo viewer count",
 	labelNames: videoLabels,
 });
 
-export const videoStartTime = new Gauge({
+const videoStartTime = new Gauge({
 	name: "holochat_video_start_time_seconds",
 	help: "Start time of the video since unix epoch in seconds.",
 	labelNames: videoLabels,
 	aggregator: "omit",
 });
 
-export function getVideoLabel(live: LiveLivestream) {
+export function getVideoLabel(live: LiveLivestream): VideoLabel {
 	const cacheKey = `metrics_video_label_${live.youtubeId}`;
 	return cache.getDefault(cacheKey, () => ({
 		channelId: live.channel.youtubeId,
@@ -41,9 +74,8 @@ export function getVideoLabel(live: LiveLivestream) {
 
 export function initVideoMetrics(live: LiveLivestream) {
 	const label = getVideoLabel(live);
-	counterReceiveMessages.labels(label).inc(0);
-	counterModeratorMessages.labels(label).inc(0);
-	videoViewers.labels(label).inc(0);
+	gaugeSuperChatValue.labels(label).set(0);
+	videoViewers.labels(label).set(0);
 	updateVideoMetrics(live);
 }
 
@@ -58,10 +90,52 @@ export function updateVideoMetrics(live: LiveLivestream) {
 	}
 }
 
+export function addMessageMetrics(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage, marked = false) {
+	let type = MessageType.Other;
+	let authorType = MessageAuthorType.Other;
+	switch (message.snippet.type) {
+		case "newSponsorEvent":
+			type = MessageType.NewSponsor;
+			break;
+		case "superChatEvent":
+			type = MessageType.SuperChat;
+			break;
+		case "superStickerEvent":
+			type = MessageType.SuperSticker;
+			break;
+		case "textMessageEvent":
+			type = MessageType.TextMessage;
+			break;
+	}
+
+	if (message.authorDetails.isChatOwner) authorType = MessageAuthorType.Owner;
+	else if (marked) authorType = MessageAuthorType.Marked;
+	else if (message.authorDetails.isChatModerator) authorType = MessageAuthorType.Moderator;
+	else if (message.authorDetails.isChatSponsor) authorType = MessageAuthorType.Sponsor;
+	else if (message.authorDetails.isVerified) authorType = MessageAuthorType.Verified;
+
+	const label: MessageLabel = {
+		...getVideoLabel(live),
+		type,
+		authorType,
+	};
+
+	const videoId = live.youtubeId!;
+	messageLabels[videoId] = messageLabels[videoId] || [];
+	if (!messageLabels[videoId].find(b => label.type === b.type && label.authorType === b.authorType)) messageLabels[videoId].push(label);
+
+	counterReceiveMessages.labels(label).inc(1);
+}
+
 export function removeVideoMetrics(live: LiveLivestream) {
 	const label = getVideoLabel(live);
-	counterReceiveMessages.remove(label);
-	counterModeratorMessages.remove(label);
+	const videoId = live.youtubeId!;
+	if (messageLabels[videoId]) {
+		messageLabels[videoId].forEach(l => {
+			counterReceiveMessages.remove(l);
+		});
+	}
+	gaugeSuperChatValue.remove(label);
 	videoViewers.remove(label);
 	videoStartTime.remove(label);
 }

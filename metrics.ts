@@ -2,7 +2,7 @@ import { LiveLivestream } from "@holores/holoapi/dist/types";
 import { Counter, Gauge } from "prom-client";
 import { cache } from "./cache";
 
-const videoLabels = ["channelId", "channelName", "videoId", "title"];
+const videoLabels = ["channelId", "channelName", "videoId", "title"] as const;
 
 export const counterReceiveMessages = new Counter({
 	name: "holochat_receive_messages",
@@ -30,12 +30,13 @@ export const videoStartTime = new Gauge({
 });
 
 export function getVideoLabel(live: LiveLivestream) {
-	return {
+	const cacheKey = `metrics_video_label_${live.youtubeId}`;
+	return cache.getDefault(cacheKey, () => ({
 		channelId: live.channel.youtubeId,
 		channelName: live.channel.name,
-		videoId: live.youtubeId,
+		videoId: live.youtubeId!,
 		title: live.title,
-	};
+	}));
 }
 
 export function initVideoMetrics(live: LiveLivestream) {

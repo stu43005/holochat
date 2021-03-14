@@ -2,6 +2,15 @@ import config from "config";
 import NodeCache from "node-cache";
 
 class MyCache extends NodeCache {
+	getDefault<T>(setting: string, fetch: () => T, ttl?: number | string): T {
+		let value = this.get<T>(setting);
+		if (!value) {
+			value = fetch();
+			if (ttl) this.set(setting, value, ttl);
+			else this.set(setting, value);
+		}
+		return value;
+	}
 	sismember(key: string, member: string): boolean {
 		const list = this.get<string[]>(key) ?? [];
 		if (!Array.isArray(list)) {

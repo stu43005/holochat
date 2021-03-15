@@ -5,13 +5,19 @@ const convertTimestampUsec = (timestampUsec: string) => {
 };
 
 const urlRegex = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()!@:%_\+.~#?&\/\/=]*)/;
-const getNavigationEndpointUrl = (navigationEndpoint: string | NavigationEndpoint | Record<string, any>): string | undefined => {
+const getNavigationEndpointUrl = (navigationEndpoint: string | NavigationEndpoint): string | undefined => {
 	if (!navigationEndpoint) return;
 	if (typeof navigationEndpoint === "string") {
 		if (urlRegex.test(navigationEndpoint)) return navigationEndpoint;
 		return;
 	}
-	if (navigationEndpoint?.urlEndpoint?.url) return navigationEndpoint?.urlEndpoint?.url;
+	if (typeof navigationEndpoint !== "object") return;
+	if (navigationEndpoint?.watchEndpoint && navigationEndpoint?.watchEndpoint?.videoId) {
+		return `https://www.youtube.com/watch?v=${navigationEndpoint.watchEndpoint.videoId}`;
+	}
+	if (navigationEndpoint?.urlEndpoint?.url) {
+		return navigationEndpoint?.urlEndpoint?.url;
+	}
 	return Object.values(navigationEndpoint).find(element => getNavigationEndpointUrl(element));
 };
 
@@ -314,7 +320,24 @@ interface LiveChatTextMessageText {
 }
 
 interface NavigationEndpoint {
-	urlEndpoint: UrlEndpoint
+	commandMetadata?: CommandMetadata;
+	watchEndpoint?: WatchEndpoint;
+	urlEndpoint?: UrlEndpoint;
+}
+
+interface CommandMetadata {
+	webCommandMetadata: WebCommandMetadata;
+}
+
+interface WebCommandMetadata {
+	url: string;
+	webPageType: string;
+	rootVe: number;
+}
+
+interface WatchEndpoint {
+	videoId: string;
+	nofollow: boolean;
 }
 
 interface UrlEndpoint {

@@ -29,7 +29,7 @@
     "youtube-live-chat-ts": "^0.2.4"
   },
   "devDependencies": {
-    "@tsconfig/node14": "^1.0.0",
+    "@tsconfig/node12": "^1.0.7",
     "@types/config": "0.0.38",
     "@types/cron": "^1.7.2",
     "@types/express": "^4.17.11",

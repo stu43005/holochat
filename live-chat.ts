@@ -5,10 +5,11 @@ import { MessageEmbed, WebhookClient } from "discord.js";
 import moment from "moment";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
-import { addMessageMetrics, initVideoMetrics, removeVideoMetrics, updateVideoMetrics } from "./metrics";
+import { addMessageMetrics, counterFilterTestFailed, initVideoMetrics, removeVideoMetrics, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
 import { YtcMessage } from "./ytc-fetch-parser";
 import { YtcNoChrome } from "./ytc-nochrome";
+import { BloomFilter } from "bloom-filters";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
@@ -21,6 +22,7 @@ const ytcHeadless = new YtcNoChrome();
 const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<string>("discord_token"));
 
 const channels = config.has("channels") ? config.get<string[]>("channels") : [];
+const messageFilters: Record<string, BloomFilter> = {};
 
 function delay(sec: number) {
 	return new Promise((resolve) => global.setTimeout(resolve, sec));
@@ -69,8 +71,11 @@ export async function fetchChannel() {
 
 async function startChatRecord(videoId: string) {
 	cache.sadd(KEY_YOUTUBE_LIVE_IDS, videoId);
+
 	const live = cache.get<LiveLivestream>(videoId);
 	if (live) initVideoMetrics(live);
+
+	messageFilters[videoId] = BloomFilter.create(100000, 0.02);
 
 	// const liveChatId = await ytchat.getLiveChatIdFromVideoId(videoId);
 	// if (!liveChatId) return false;
@@ -86,7 +91,12 @@ async function startChatRecord(videoId: string) {
 		(chatMessage: YtcMessage) => {
 			const live = cache.get<LiveLivestream>(videoId);
 			if (live) {
+				if (messageFilters[videoId]?.has(chatMessage.id)) {
+					counterFilterTestFailed.inc(1);
+					return;
+				}
 				parseMessage(live, chatMessage);
+				messageFilters[videoId]?.add(chatMessage.id);
 			}
 		},
 		(error: any) => {
@@ -109,11 +119,14 @@ async function startChatRecord(videoId: string) {
 
 function stopChatRecord(videoId: string, remove = true) {
 	if (remove) cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
-	console.log(`Stop record: ${videoId}`);
-	logChatsCount();
 
 	const live = cache.get<LiveLivestream>(videoId);
 	if (live) removeVideoMetrics(live);
+
+	delete messageFilters[videoId];
+
+	console.log(`Stop record: ${videoId}`);
+	logChatsCount();
 }
 
 function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {

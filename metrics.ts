@@ -62,6 +62,11 @@ const videoStartTime = new Gauge({
 	aggregator: "omit",
 });
 
+export const counterFilterTestFailed = new Counter({
+	name: "holochat_filter_test_failed",
+	help: "Number of filter test failed",
+});
+
 export function getVideoLabel(live: LiveLivestream): VideoLabel {
 	const cacheKey = `metrics_video_label_${live.youtubeId}`;
 	return cache.getDefault(cacheKey, () => ({

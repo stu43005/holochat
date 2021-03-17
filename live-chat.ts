@@ -1,5 +1,6 @@
 import Client from "@holores/holoapi";
 import { LiveLivestream, VideoBase } from "@holores/holoapi/dist/types";
+import { BloomFilter } from "bloom-filters";
 import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
 import moment from "moment";
@@ -9,7 +10,6 @@ import { addMessageMetrics, counterFilterTestFailed, initVideoMetrics, removeVid
 import { secondsToHms } from "./utils";
 import { YtcMessage } from "./ytc-fetch-parser";
 import { YtcNoChrome } from "./ytc-nochrome";
-import { BloomFilter } from "bloom-filters";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
@@ -42,6 +42,15 @@ export async function fetchChannel() {
 			if (t.isSameOrAfter(r)) {
 				now.push(video);
 			}
+		}
+	}
+	if (lives.ended) {
+		for (const live of lives.ended) {
+			const videoId = live.youtubeId;
+			if (!videoId) continue;
+			if (channels.length && !channels.includes(live.channel.youtubeId)) continue; // Not in channel list
+
+			cache.set(videoId, live);
 		}
 	}
 
@@ -182,8 +191,8 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 		}
 	}
 
+	updateVideoMetrics(live);
 	addMessageMetrics(live, message, marked);
-	reportMessageCount(live, message);
 }
 
 function postDiscord(live: LiveLivestream, chatMessage: YouTubeLiveChatMessage | YtcMessage, content: string, time: number) {
@@ -237,58 +246,5 @@ function getEmbedColor(message: YouTubeLiveChatMessage | YtcMessage) {
 function logChatsCount() {
 	global.setTimeout(() => {
 		console.log(`Current recording chats: ${ytcHeadless.count()}`);
-		setProcessTitle();
 	}, 10);
-}
-
-let messageCount = 0;
-const messageCountByChat: Record<string, number> = {};
-
-function reportMessageCount(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {
-	messageCount++;
-	if (live.youtubeId) {
-		messageCountByChat[live.youtubeId] = (messageCountByChat[live.youtubeId] ?? 0) + 1;
-		updateVideoMetrics(live);
-	}
-	setProcessTitle();
-}
-
-let setProcessTitleTimer: NodeJS.Timeout | null = null;
-
-function setProcessTitle() {
-	if (!setProcessTitleTimer) {
-		setProcessTitleTimer = global.setTimeout(() => {
-			process.title = `[${ytcHeadless.count()} chats][${messageCount} messages]`;
-			setProcessTitleTimer = null;
-			printTable();
-		}, 1000);
-	}
-}
-
-export function getStatistics() {
-	const table: {
-		Channel: string;
-		VideoID: string;
-		Title: string;
-		MessageCount: number;
-	}[] = [];
-
-	for (const videoId of Object.keys(messageCountByChat)) {
-		const live = cache.get<LiveLivestream>(videoId);
-		if (live && cache.sismember(KEY_YOUTUBE_LIVE_IDS, videoId)) {
-			table.push({
-				Channel: live.channel.name,
-				VideoID: videoId,
-				Title: live.title.substr(0, 15),
-				MessageCount: messageCountByChat[videoId],
-			});
-		}
-	}
-
-	return table;
-}
-
-function printTable() {
-	const table = getStatistics();
-	if (table.length) console.table(table);
 }

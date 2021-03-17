@@ -1,4 +1,4 @@
-import { LiveLivestream } from "@holores/holoapi/dist/types";
+import { VideoBase } from "@holores/holoapi/dist/types";
 import { Counter, Gauge } from "prom-client";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
@@ -62,12 +62,25 @@ const videoStartTime = new Gauge({
 	aggregator: "omit",
 });
 
+const videoEndTime = new Gauge({
+	name: "holochat_video_end_time_seconds",
+	help: "End time of the video since unix epoch in seconds.",
+	labelNames: videoLabels,
+	aggregator: "omit",
+});
+
+const videoDuration = new Gauge({
+	name: "holochat_video_duration_seconds",
+	help: "Duration of the video in seconds.",
+	labelNames: videoLabels,
+});
+
 export const counterFilterTestFailed = new Counter({
 	name: "holochat_filter_test_failed",
 	help: "Number of filter test failed",
 });
 
-export function getVideoLabel(live: LiveLivestream): VideoLabel {
+export function getVideoLabel(live: VideoBase): VideoLabel {
 	const cacheKey = `metrics_video_label_${live.youtubeId}`;
 	return cache.getDefault(cacheKey, () => ({
 		channelId: live.channel.youtubeId,
@@ -77,14 +90,14 @@ export function getVideoLabel(live: LiveLivestream): VideoLabel {
 	}));
 }
 
-export function initVideoMetrics(live: LiveLivestream) {
+export function initVideoMetrics(live: VideoBase) {
 	const label = getVideoLabel(live);
 	gaugeSuperChatValue.labels(label).set(0);
 	videoViewers.labels(label).set(0);
 	updateVideoMetrics(live);
 }
 
-export function updateVideoMetrics(live: LiveLivestream) {
+export function updateVideoMetrics(live: VideoBase) {
 	const label = getVideoLabel(live);
 	if (live.viewers) videoViewers.labels(label).set(live.viewers);
 
@@ -93,9 +106,15 @@ export function updateVideoMetrics(live: LiveLivestream) {
 		videoStartTime.labels(label).set(live.startDate.getTime() / 1000);
 		cache.set(startTimeCacheKey, 1);
 	}
+	if (live.startDate) {
+		const duration = (Date.now() - live.startDate.getTime()) / 1000;
+		if (duration > 0) {
+			videoDuration.labels(label).set(duration);
+		}
+	}
 }
 
-export function addMessageMetrics(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage, marked = false) {
+export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessage | YtcMessage, marked = false) {
 	let type = MessageType.Other;
 	let authorType = MessageAuthorType.Other;
 	switch (message.snippet.type) {
@@ -132,7 +151,7 @@ export function addMessageMetrics(live: LiveLivestream, message: YouTubeLiveChat
 	counterReceiveMessages.labels(label).inc(1);
 }
 
-export function removeVideoMetrics(live: LiveLivestream) {
+export function removeVideoMetrics(live: VideoBase) {
 	const label = getVideoLabel(live);
 	const videoId = live.youtubeId!;
 	if (messageLabels[videoId]) {
@@ -143,4 +162,18 @@ export function removeVideoMetrics(live: LiveLivestream) {
 	gaugeSuperChatValue.remove(label);
 	videoViewers.remove(label);
 	videoStartTime.remove(label);
+
+	const endTimeCacheKey = `metrics_video_end_time_${live.youtubeId}`;
+	if (live.endDate && !cache.has(endTimeCacheKey)) {
+		videoEndTime.labels(label).set(live.endDate.getTime() / 1000);
+		if (live.startDate) {
+			videoDuration.labels(label).set((live.endDate.getTime() - live.startDate.getTime()) / 1000);
+		}
+
+		global.setTimeout(() => {
+			videoEndTime.remove(label);
+			videoDuration.remove(label);
+		}, 60000);
+		cache.set(endTimeCacheKey, 1);
+	}
 }

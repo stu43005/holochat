@@ -1,9 +1,9 @@
 import { CronJob } from "cron";
+import express from "express";
 import path from "path";
-import requireAll from "require-all";
-import { fetchChannel, getStatistics } from "./live-chat";
-import express, { NextFunction, Request, Response } from "express";
 import { collectDefaultMetrics, register } from "prom-client";
+import requireAll from "require-all";
+import { fetchChannel } from "./live-chat";
 
 collectDefaultMetrics();
 
@@ -36,10 +36,8 @@ fetchChannel();
 // init express server
 const app = express();
 app.get("/", (req, res) => {
-	const table = getStatistics();
 	res.status(200).json({
 		ok: true,
-		statistics: table,
 	});
 });
 app.get("/metrics", async (_req, res) => {

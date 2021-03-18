@@ -162,7 +162,7 @@ export class YtcNoChrome {
 						this.subjectCache[videoId]?.error(error);
 						this.stop(videoId);
 					}
-				}, data.timeoutMs);
+				}, Math.min(data.timeoutMs, 60000));
 			};
 
 			global.setTimeout(async () => {

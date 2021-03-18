@@ -29,7 +29,7 @@ function delay(sec: number) {
 }
 
 export async function fetchChannel() {
-	const lives = await holoapi.videos.getLivestreams();
+	const lives = await holoapi.videos.getLivestreams("", 1, 1);
 	let now: VideoBase[] = [];
 	if (lives.live) {
 		now = now.concat(lives.live);
@@ -58,6 +58,7 @@ export async function fetchChannel() {
 	for (const videoId of lived) {
 		const live = now.find(l => l.youtubeId === videoId);
 		if (live) continue;
+
 		await ytcHeadless.stop(videoId);
 		stopChatRecord(videoId);
 	}
@@ -68,7 +69,11 @@ export async function fetchChannel() {
 		if (channels.length && !channels.includes(live.channel.youtubeId)) continue; // Not in channel list
 
 		cache.set(videoId, live);
-		if (cache.sismember(KEY_YOUTUBE_LIVE_IDS, videoId)) continue; // already started
+		if (cache.sismember(KEY_YOUTUBE_LIVE_IDS, videoId)) {
+			// already started
+			updateVideoMetrics(live);
+			continue;
+		}
 
 		startChatRecord(videoId).catch(error => {
 			console.error(`Start record error: ${videoId}:`, error.toString());
@@ -111,7 +116,7 @@ async function startChatRecord(videoId: string) {
 		(error: any) => {
 			console.error(error);
 			if (`${error}`.includes("很抱歉，聊天室目前無法使用")) {
-				stopChatRecord(videoId, false);
+				// dont remove metrics
 			}
 			else {
 				stopChatRecord(videoId);
@@ -130,7 +135,10 @@ function stopChatRecord(videoId: string, remove = true) {
 	if (remove) cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
 
 	const live = cache.get<LiveLivestream>(videoId);
-	if (live) removeVideoMetrics(live);
+	if (live) {
+		updateVideoMetrics(live);
+		removeVideoMetrics(live);
+	}
 
 	delete messageFilters[videoId];
 
@@ -153,7 +161,6 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 	const time = isBeforeStream ? 0 : Math.floor((publishedAt.getTime() - live.startDate.getTime()) / 1000);
 	const timeCode = secondsToHms(time);
 
-	let log = false;
 	let content = "";
 	let amountDisplayString = "￥0";
 	// let amountMicros = 0;
@@ -177,18 +184,16 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 		// 	break;
 		case "textMessageEvent":
 			content = message.snippet.textMessageDetails.messageText;
-			if (message.authorDetails.isChatOwner || message.authorDetails.isChatModerator) log = true;
 			break;
 	}
 
 	// const realAmount = getRealAmount(amountMicros, currency);
-	if (log) {
-		console.log(`[${videoId}][${timeCode}] ${userName}${userDetail.length ? `(${userDetail.join(",")})` : ""}: ${content}`);
 
-		if (!marked) log = false;
-		if (log) {
-			postDiscord(live, message, content, time);
-		}
+	if (marked || message.authorDetails.isChatOwner || message.authorDetails.isChatModerator) {
+		console.log(`[${videoId}][${timeCode}] ${userName}${userDetail.length ? `(${userDetail.join(",")})` : ""}: ${content}`);
+	}
+	if (marked) {
+		postDiscord(live, message, content, time);
 	}
 
 	updateVideoMetrics(live);

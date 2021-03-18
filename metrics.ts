@@ -41,7 +41,7 @@ const counterReceiveMessages = new Counter({
 	labelNames: [...videoLabels, "type", "authorType"],
 });
 
-const messageLabels: Record<string, MessageLabel[]> = {};
+const messageLabels: Record<string, Set<string>> = {};
 
 const gaugeSuperChatValue = new Gauge({
 	name: "holochat_super_chat_value",
@@ -99,17 +99,25 @@ export function initVideoMetrics(live: VideoBase) {
 
 export function updateVideoMetrics(live: VideoBase) {
 	const label = getVideoLabel(live);
-	if (live.viewers) videoViewers.labels(label).set(live.viewers);
-
-	const startTimeCacheKey = `metrics_video_start_time_${live.youtubeId}`;
-	if (live.startDate && !cache.has(startTimeCacheKey)) {
-		videoStartTime.labels(label).set(live.startDate.getTime() / 1000);
-		cache.set(startTimeCacheKey, 1);
+	if (live.viewers) {
+		videoViewers.labels(label).set(live.viewers);
 	}
 	if (live.startDate) {
-		const duration = (Date.now() - live.startDate.getTime()) / 1000;
+		videoStartTime.labels(label).set(live.startDate.getTime() / 1000);
+
+		const duration = Date.now() - live.startDate.getTime();
 		if (duration > 0) {
-			videoDuration.labels(label).set(duration);
+			videoDuration.labels(label).set(duration / 1000);
+		}
+	}
+	if (live.endDate) {
+		videoEndTime.labels(label).set(live.endDate.getTime() / 1000);
+
+		if (live.startDate) {
+			const duration = live.endDate.getTime() - live.startDate.getTime();
+			if (duration > 0) {
+				videoDuration.labels(label).set(duration / 1000);
+			}
 		}
 	}
 }
@@ -145,8 +153,8 @@ export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessa
 	};
 
 	const videoId = live.youtubeId!;
-	messageLabels[videoId] = messageLabels[videoId] || [];
-	if (!messageLabels[videoId].find(b => label.type === b.type && label.authorType === b.authorType)) messageLabels[videoId].push(label);
+	if (!messageLabels[videoId]) messageLabels[videoId] = new Set();
+	messageLabels[videoId].add(JSON.stringify(label));
 
 	counterReceiveMessages.labels(label).inc(1);
 }
@@ -156,24 +164,16 @@ export function removeVideoMetrics(live: VideoBase) {
 	const videoId = live.youtubeId!;
 	if (messageLabels[videoId]) {
 		messageLabels[videoId].forEach(l => {
-			counterReceiveMessages.remove(l);
+			const ll = JSON.parse(l);
+			counterReceiveMessages.remove(ll);
 		});
 	}
 	gaugeSuperChatValue.remove(label);
 	videoViewers.remove(label);
 	videoStartTime.remove(label);
 
-	const endTimeCacheKey = `metrics_video_end_time_${live.youtubeId}`;
-	if (live.endDate && !cache.has(endTimeCacheKey)) {
-		videoEndTime.labels(label).set(live.endDate.getTime() / 1000);
-		if (live.startDate) {
-			videoDuration.labels(label).set((live.endDate.getTime() - live.startDate.getTime()) / 1000);
-		}
-
-		global.setTimeout(() => {
-			videoEndTime.remove(label);
-			videoDuration.remove(label);
-		}, 60000);
-		cache.set(endTimeCacheKey, 1);
-	}
+	global.setTimeout(() => {
+		videoEndTime.remove(label);
+		videoDuration.remove(label);
+	}, 60000);
 }

@@ -243,6 +243,11 @@ function restoreVideoMetrics(backup: any[], videoId: string) {
 			else if (metric instanceof Counter) {
 				metric.labels(value.labels).inc(value.value);
 			}
+
+			if (key === "holochat_receive_messages") {
+				if (!messageLabels[videoId]) messageLabels[videoId] = new Set();
+				messageLabels[videoId].add(JSON.stringify(value.labels));
+			}
 		}
 	}
 }

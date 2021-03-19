@@ -29,13 +29,13 @@ function delay(sec: number) {
 }
 
 export async function fetchChannel() {
+	const t = moment();
 	const lives = await holoapi.videos.getLivestreams("", 1, 1);
 	let now: VideoBase[] = [];
 	if (lives.live) {
 		now = now.concat(lives.live);
 	}
 	if (lives.upcoming) {
-		const t = moment();
 		for (const video of lives.upcoming) {
 			const startTime = moment(video.scheduledDate);
 			const r = startTime.subtract(10, "minute");
@@ -45,12 +45,12 @@ export async function fetchChannel() {
 		}
 	}
 	if (lives.ended) {
-		for (const live of lives.ended) {
-			const videoId = live.youtubeId;
-			if (!videoId) continue;
-			if (channels.length && !channels.includes(live.channel.youtubeId)) continue; // Not in channel list
-
-			cache.set(videoId, live);
+		for (const video of lives.ended) {
+			const endDate = moment(video.endDate);
+			const r = endDate.add(5, "minute");
+			if (t.isSameOrBefore(r)) {
+				now.push(video);
+			}
 		}
 	}
 

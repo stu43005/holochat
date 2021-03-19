@@ -6,7 +6,7 @@ import { MessageEmbed, WebhookClient } from "discord.js";
 import moment from "moment";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
-import { addMessageMetrics, counterFilterTestFailed, getVideoLabel, initVideoMetrics, removeVideoMetrics, updateVideoMetrics } from "./metrics";
+import { addMessageMetrics, counterFilterTestFailed, getVideoLabel, initVideoMetrics, removeVideoMetrics, restoreAllMetrics, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
 import { YtcMessage } from "./ytc-fetch-parser";
 import { YtcNoChrome } from "./ytc-nochrome";
@@ -23,6 +23,7 @@ const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<s
 
 const channels = config.has("channels") ? config.get<string[]>("channels") : [];
 const messageFilters: Record<string, BloomFilter> = {};
+let inited = false;
 
 function delay(sec: number) {
 	return new Promise((resolve) => global.setTimeout(resolve, sec));
@@ -52,6 +53,11 @@ export async function fetchChannel() {
 				now.push(video);
 			}
 		}
+	}
+
+	if (!inited) {
+		inited = true;
+		restoreAllMetrics(now.map(live => live.youtubeId!));
 	}
 
 	const lived = cache.get<string[]>(KEY_YOUTUBE_LIVE_IDS) ?? [];

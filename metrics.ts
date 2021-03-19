@@ -1,5 +1,7 @@
 import { VideoBase } from "@holores/holoapi/dist/types";
-import { Counter, Gauge } from "prom-client";
+import fs from "fs";
+import path from "path";
+import { Counter, Gauge, register } from "prom-client";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
 import { YtcMessage } from "./ytc-fetch-parser";
@@ -86,6 +88,17 @@ export const counterFilterTestFailed = new Counter({
 	help: "Number of filter test failed",
 	labelNames: videoLabels,
 });
+
+const metrics = {
+	holochat_receive_messages: counterReceiveMessages,
+	holochat_super_chat_value: gaugeSuperChatValue,
+	holochat_video_viewers: videoViewers,
+	holochat_video_start_time_seconds: videoStartTime,
+	holochat_video_end_time_seconds: videoEndTime,
+	holochat_video_up_time_seconds: videoUpTime,
+	holochat_video_duration_seconds: videoDuration,
+	holochat_filter_test_failed: counterFilterTestFailed,
+};
 
 export function getVideoLabel(live: VideoBase): VideoLabel {
 	const cacheKey = `metrics_video_label_${live.youtubeId}`;
@@ -177,4 +190,54 @@ export function removeVideoMetrics(live: VideoBase) {
 	videoUpTime.remove(label);
 	videoDuration.remove(label);
 	counterFilterTestFailed.remove(label);
+}
+
+const backupPath = path.join(__dirname, "backup_metrics.json");
+process.on("SIGUSR2", async (signal) => {
+	console.log(`Received ${signal}`);
+	const json = await register.getMetricsAsJSON();
+	fs.writeFileSync(backupPath, JSON.stringify(json));
+	process.exit(0);
+});
+
+function readBackupMetrics() {
+	try {
+		const content = fs.readFileSync(backupPath, { encoding: "utf8" });
+		const json = JSON.parse(content);
+		return json;
+	}
+	catch (error) {
+		return;
+	}
+}
+
+export function restoreAllMetrics(videoIds: string[]) {
+	const backup = readBackupMetrics();
+	if (!backup) return;
+
+	for (const videoId of videoIds) {
+		restoreVideoMetrics(backup, videoId);
+	}
+}
+
+function restoreVideoMetrics(backup: any[], videoId: string) {
+	const keys: (keyof typeof metrics)[] = Object.keys(metrics) as any;
+	for (const key of keys) {
+		const metric = metrics[key];
+		const oldData = backup?.find(entry => entry.name === key);
+		if (!oldData) continue;
+		const values = oldData?.values?.filter((value: any) => value?.labels?.videoId === videoId);
+		if (!values?.length) continue;
+
+		for (const value of values) {
+			if (!value.labels || !value.value) continue;
+
+			if (metric instanceof Gauge) {
+				metric.labels(value.labels).set(value.value);
+			}
+			else if (metric instanceof Counter) {
+				metric.labels(value.labels).inc(value.value);
+			}
+		}
+	}
 }

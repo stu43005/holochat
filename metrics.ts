@@ -69,6 +69,12 @@ const videoEndTime = new Gauge({
 	aggregator: "omit",
 });
 
+const videoUpTime = new Gauge({
+	name: "holochat_video_up_time_seconds",
+	help: "Up time of the video since unix epoch in seconds.",
+	labelNames: videoLabels,
+});
+
 const videoDuration = new Gauge({
 	name: "holochat_video_duration_seconds",
 	help: "Duration of the video in seconds.",
@@ -78,6 +84,7 @@ const videoDuration = new Gauge({
 export const counterFilterTestFailed = new Counter({
 	name: "holochat_filter_test_failed",
 	help: "Number of filter test failed",
+	labelNames: videoLabels,
 });
 
 export function getVideoLabel(live: VideoBase): VideoLabel {
@@ -92,7 +99,6 @@ export function getVideoLabel(live: VideoBase): VideoLabel {
 
 export function initVideoMetrics(live: VideoBase) {
 	const label = getVideoLabel(live);
-	gaugeSuperChatValue.labels(label).set(0);
 	videoViewers.labels(label).set(0);
 	updateVideoMetrics(live);
 }
@@ -102,24 +108,19 @@ export function updateVideoMetrics(live: VideoBase) {
 	if (live.viewers) {
 		videoViewers.labels(label).set(live.viewers);
 	}
+	const endDate = live.endDate ?? new Date();
 	if (live.startDate) {
 		videoStartTime.labels(label).set(live.startDate.getTime() / 1000);
 
-		const duration = Date.now() - live.startDate.getTime();
+		const duration = endDate.getTime() - live.startDate.getTime();
 		if (duration > 0) {
 			videoDuration.labels(label).set(duration / 1000);
 		}
 	}
 	if (live.endDate) {
 		videoEndTime.labels(label).set(live.endDate.getTime() / 1000);
-
-		if (live.startDate) {
-			const duration = live.endDate.getTime() - live.startDate.getTime();
-			if (duration > 0) {
-				videoDuration.labels(label).set(duration / 1000);
-			}
-		}
 	}
+	videoUpTime.labels(label).set(endDate.getTime() / 1000);
 }
 
 export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessage | YtcMessage, marked = false) {
@@ -167,13 +168,13 @@ export function removeVideoMetrics(live: VideoBase) {
 			const ll = JSON.parse(l);
 			counterReceiveMessages.remove(ll);
 		});
+		delete messageLabels[videoId];
 	}
 	gaugeSuperChatValue.remove(label);
 	videoViewers.remove(label);
 	videoStartTime.remove(label);
-
-	global.setTimeout(() => {
-		videoEndTime.remove(label);
-		videoDuration.remove(label);
-	}, 60000);
+	videoEndTime.remove(label);
+	videoUpTime.remove(label);
+	videoDuration.remove(label);
+	counterFilterTestFailed.remove(label);
 }

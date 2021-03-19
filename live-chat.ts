@@ -6,7 +6,7 @@ import { MessageEmbed, WebhookClient } from "discord.js";
 import moment from "moment";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
-import { addMessageMetrics, counterFilterTestFailed, initVideoMetrics, removeVideoMetrics, updateVideoMetrics } from "./metrics";
+import { addMessageMetrics, counterFilterTestFailed, getVideoLabel, initVideoMetrics, removeVideoMetrics, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
 import { YtcMessage } from "./ytc-fetch-parser";
 import { YtcNoChrome } from "./ytc-nochrome";
@@ -106,7 +106,7 @@ async function startChatRecord(videoId: string) {
 			const live = cache.get<LiveLivestream>(videoId);
 			if (live) {
 				if (messageFilters[videoId]?.has(chatMessage.id)) {
-					counterFilterTestFailed.inc(1);
+					counterFilterTestFailed.labels(getVideoLabel(live)).inc(1);
 					return;
 				}
 				parseMessage(live, chatMessage);

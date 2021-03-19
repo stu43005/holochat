@@ -193,12 +193,17 @@ export function removeVideoMetrics(live: VideoBase) {
 }
 
 const backupPath = path.join(__dirname, "backup_metrics.json");
-process.on("SIGUSR2", async (signal) => {
+
+async function handleExit(signal: NodeJS.Signals) {
 	console.log(`Received ${signal}`);
 	const json = await register.getMetricsAsJSON();
 	fs.writeFileSync(backupPath, JSON.stringify(json));
 	process.exit(0);
-});
+};
+
+process.on("SIGINT", handleExit);
+process.on("SIGTERM", handleExit);
+process.on("SIGUSR2", handleExit); // for nodemon
 
 function readBackupMetrics() {
 	try {

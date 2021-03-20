@@ -21,7 +21,7 @@ const getNavigationEndpointUrl = (navigationEndpoint: string | NavigationEndpoin
 	return Object.values(navigationEndpoint).find(element => getNavigationEndpointUrl(element));
 };
 
-const toMessage = (message: LiveChatTextMessage) => {
+const toMessage = (message: LiveChatSimpleString) => {
 	if (message?.simpleText) return message.simpleText;
 	if (!message?.runs) return "";
 	return message.runs.reduce((acc, msg) => {
@@ -41,6 +41,26 @@ const toMessage = (message: LiveChatTextMessage) => {
 	}, "");
 };
 
+const paidToTier = (backgroundColor: number) => {
+	switch (backgroundColor) {
+		case 4280191205:
+			return 1;
+		case 4278248959:
+			return 2;
+		case 4280150454:
+			return 3;
+		case 4294953512:
+			return 4;
+		case 4294278144:
+			return 5;
+		case 4293467747:
+			return 6;
+		case 4293271831:
+			return 7; // or 8
+	}
+	return 0;
+};
+
 export const fetchParser = (json: any) => {
 	const result: YtcMessage[] = [];
 	try {
@@ -52,6 +72,7 @@ export const fetchParser = (json: any) => {
 
 				const textRenderer: LiveChatTextMessageRenderer | undefined = action?.addChatItemAction?.item?.liveChatTextMessageRenderer;
 				const paidMessageRenderer: LiveChatPaidMessageRenderer | undefined = action?.addChatItemAction?.item?.liveChatPaidMessageRenderer;
+				const paidStickerRenderer: LiveChatPaidStickerRenderer | undefined = action?.addChatItemAction?.item?.liveChatPaidStickerRenderer;
 				const membershipItemRenderer: LiveChatMembershipItemRenderer | undefined = action?.addChatItemAction?.item?.liveChatMembershipItemRenderer;
 				const chatMessage = textRenderer || paidMessageRenderer || membershipItemRenderer;
 
@@ -62,36 +83,25 @@ export const fetchParser = (json: any) => {
 							const superChat: YtcMessageSuperChat = {
 								type: "superChatEvent",
 								superChatDetails: {
-									amountDisplayString: paidMessageRenderer.purchaseAmountText.simpleText,
+									amountDisplayString: toMessage(paidMessageRenderer.purchaseAmountText),
 									userComment: toMessage(paidMessageRenderer.message),
-									tier: 0,
+									tier: paidToTier(paidMessageRenderer.bodyBackgroundColor),
 								},
 								publishedAt: convertTimestampUsec(paidMessageRenderer.timestampUsec),
 							};
-							switch (paidMessageRenderer.bodyBackgroundColor) {
-								case 4280191205:
-									superChat.superChatDetails.tier = 1;
-									break;
-								case 4278248959:
-									superChat.superChatDetails.tier = 2;
-									break;
-								case 4280150454:
-									superChat.superChatDetails.tier = 3;
-									break;
-								case 4294953512:
-									superChat.superChatDetails.tier = 4;
-									break;
-								case 4294278144:
-									superChat.superChatDetails.tier = 5;
-									break;
-								case 4293467747:
-									superChat.superChatDetails.tier = 6;
-									break;
-								case 4293271831:
-									superChat.superChatDetails.tier = 7; // or 8
-									break;
-							}
 							snippet = superChat;
+						}
+						else if (paidStickerRenderer) {
+							const superSticker: YtcMessageSuperSticker = {
+								type: "superStickerEvent",
+								superStickerDetails: {
+									superStickerUrl: paidStickerRenderer.sticker?.thumbnails?.[0]?.url ?? "",
+									amountDisplayString: toMessage(paidStickerRenderer.purchaseAmountText),
+									tier: paidToTier(paidStickerRenderer.backgroundColor),
+								},
+								publishedAt: convertTimestampUsec(paidStickerRenderer.timestampUsec),
+							};
+							snippet = superSticker;
 						}
 						else if (membershipItemRenderer) {
 							const message = toMessage(membershipItemRenderer.headerSubtext);
@@ -120,7 +130,7 @@ export const fetchParser = (json: any) => {
 							authorDetails: {
 								channelId: chatMessage.authorExternalChannelId ?? "",
 								channelUrl: chatMessage.authorExternalChannelId ? `https://www.youtube.com/channel/${chatMessage.authorExternalChannelId}` : "",
-								displayName: chatMessage.authorName?.simpleText ?? "",
+								displayName: toMessage(chatMessage.authorName),
 								profileImageUrl: chatMessage.authorPhoto?.thumbnails.find((t, i, a) => !a.find(t2 => t.width < t2.width))?.url ?? "",
 								isVerified: false,
 								isChatOwner: false,
@@ -144,8 +154,10 @@ export const fetchParser = (json: any) => {
 										msg.authorDetails.isChatOwner = true;
 										break;
 									default:
-										msg.authorDetails.badgeUrl = chatBadge?.customThumbnail?.thumbnails?.[0]?.url;
-										msg.authorDetails.isChatSponsor = true;
+										if (chatBadge?.customThumbnail) {
+											msg.authorDetails.badgeUrl = chatBadge?.customThumbnail?.thumbnails?.[0]?.url;
+											msg.authorDetails.isChatSponsor = true;
+										}
 										break;
 								}
 							}
@@ -194,7 +206,7 @@ export interface YtcMessageSnippetBase {
 	publishedAt: string;
 }
 
-type YtcMessageSnippet = YtcMessageTextMessage | YtcMessageSuperChat | YtcMessageNewSponsor;
+type YtcMessageSnippet = YtcMessageTextMessage | YtcMessageSuperChat | YtcMessageSuperSticker | YtcMessageNewSponsor;
 
 export interface YtcMessageTextMessage extends YtcMessageSnippetBase {
 	type: "textMessageEvent";
@@ -213,38 +225,52 @@ export interface YtcMessageSuperChat extends YtcMessageSnippetBase {
 	};
 }
 
+export interface YtcMessageSuperSticker extends YtcMessageSnippetBase {
+	type: "superStickerEvent";
+	superStickerDetails: {
+		superStickerMetadata?: {
+			altText: string;
+		};
+		superStickerUrl: string;
+		amountDisplayString: string;
+		tier: number;
+	};
+}
+
 export interface YtcMessageNewSponsor extends YtcMessageSnippetBase {
 	type: "newSponsorEvent";
 	displayMessage: string;
 }
 
+// <yt-live-chat-text-message-renderer>
 interface LiveChatTextMessageRenderer {
 	id: string;
 	timestampUsec: string;
 
-	authorName: LiveChatSimpleText;
-	authorPhoto: LiveChatAuthorPhoto;
+	authorName: LiveChatSimpleString;
+	authorPhoto: YtImgShadowThumbnailParam;
 	authorExternalChannelId: string;
 	authorBadges?: LiveChatAuthorBadge[];
 
-	message: LiveChatTextMessage;
+	message: LiveChatSimpleString;
 
 	purchaseAmountText: undefined;
 }
 
+// <yt-live-chat-paid-message-renderer>
 interface LiveChatPaidMessageRenderer {
 	id: string;
 	timestampUsec: string;
 
-	authorName: LiveChatSimpleText;
-	authorPhoto: LiveChatAuthorPhoto;
+	authorName: LiveChatSimpleString;
+	authorPhoto: YtImgShadowThumbnailParam;
 	authorExternalChannelId: string;
 	authorBadges?: LiveChatAuthorBadge[];
 	authorNameTextColor: number;
 
-	message: LiveChatTextMessage;
+	message: LiveChatSimpleString;
 
-	purchaseAmountText: LiveChatSimpleText;
+	purchaseAmountText: LiveChatSimpleString;
 	headerBackgroundColor: number;
 	headerTextColor: number;
 	bodyBackgroundColor: number;
@@ -252,16 +278,36 @@ interface LiveChatPaidMessageRenderer {
 	timestampColor: number;
 }
 
+// <yt-live-chat-paid-sticker-renderer>
+interface LiveChatPaidStickerRenderer {
+	id: string;
+	timestampUsec: string;
+
+	authorName: LiveChatSimpleString;
+	authorPhoto: YtImgShadowThumbnailParam;
+	authorExternalChannelId: string;
+	authorBadges?: LiveChatAuthorBadge[];
+	authorNameTextColor: number;
+
+	sticker: YtImgShadowThumbnailParam;
+
+	purchaseAmountText: LiveChatSimpleString;
+	moneyChipBackgroundColor: number;
+	moneyChipTextColor: number;
+	backgroundColor: number;
+}
+
+// <yt-live-chat-membership-item-renderer>
 interface LiveChatMembershipItemRenderer {
 	id: string;
 	timestampUsec: string;
 
-	authorName: LiveChatSimpleText;
-	authorPhoto: LiveChatAuthorPhoto;
+	authorName: LiveChatSimpleString;
+	authorPhoto: YtImgShadowThumbnailParam;
 	authorExternalChannelId: string;
 	authorBadges: LiveChatAuthorBadge[];
 
-	headerSubtext: LiveChatTextMessage;
+	headerSubtext: LiveChatSimpleString;
 }
 
 interface LiveChatAuthorBadge {
@@ -269,7 +315,7 @@ interface LiveChatAuthorBadge {
 }
 
 interface LiveChatAuthorBadgeRenderer {
-	customThumbnail: LiveChatAuthorBadgeCustomThumbnail;
+	customThumbnail: KevlarTunerThumbnails;
 	icon: undefined;
 	tooltip: string;
 }
@@ -281,33 +327,31 @@ interface LiveChatAuthorBadgeRendererMod {
 }
 
 interface LiveChatAuthorBadgeIcon {
-	iconType: string;
+	iconType: "OWNER" | "VERIFIED" | "MODERATOR";
 }
 
-interface LiveChatAuthorBadgeCustomThumbnail {
-	thumbnails: LiveChatAuthorBadgeThumbnail[];
+// kevlar_tuner
+interface KevlarTunerThumbnails {
+	thumbnails: KevlarTunerThumbnail[];
 }
 
-interface LiveChatAuthorBadgeThumbnail {
+interface KevlarTunerThumbnail {
 	url: string;
 }
 
-interface LiveChatSimpleText {
-	simpleText: string;
+// <yt-img-shadow thumbnail="">
+interface YtImgShadowThumbnailParam {
+	thumbnails: YtImgShadowThumbnail[];
 }
 
-interface LiveChatAuthorPhoto {
-	thumbnails: LiveChatAuthorPhotoThumbnail[];
-}
-
-interface LiveChatAuthorPhotoThumbnail {
+interface YtImgShadowThumbnail {
 	url: string;
 	width: number;
 	height: number;
 }
 
-interface LiveChatTextMessage {
-	runs: LiveChatTextMessageRun[];
+interface LiveChatSimpleString {
+	runs?: LiveChatTextMessageRun[];
 	simpleText?: string;
 }
 
@@ -353,16 +397,6 @@ interface LiveChatEmoji {
 	emojiId: string;
 	shortcuts: string[];
 	searchTerms: string[];
-	image: LiveChatEmojiImage;
+	image: KevlarTunerThumbnails;
 	isCustomEmoji: boolean;
-}
-
-interface LiveChatEmojiImage {
-	thumbnails: LiveChatEmojiThumbnail[];
-}
-
-interface LiveChatEmojiThumbnail {
-	url: string;
-	width: number;
-	height: number;
 }

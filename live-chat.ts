@@ -181,14 +181,14 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 			amountDisplayString = message.snippet.superChatDetails.amountDisplayString;
 			// amountMicros = message.snippet.superChatDetails.amountMicros;
 			// currency = message.snippet.superChatDetails.currency;
-			content = `${message.snippet.superChatDetails.userComment ?? ""} (${amountDisplayString}, ${message.snippet.superChatDetails.tier})`;
+			content = `${message.snippet.superChatDetails.userComment ?? ""} (${amountDisplayString}, ${message.snippet.superChatDetails.tier})`.trim();
 			break;
-		// case "superStickerEvent":
-		// 	amountDisplayString = message.snippet.superStickerDetails.amountDisplayString;
+		case "superStickerEvent":
+			amountDisplayString = message.snippet.superStickerDetails.amountDisplayString;
 		// 	amountMicros = message.snippet.superStickerDetails.amountMicros;
 		// 	currency = message.snippet.superStickerDetails.currency;
-		// 	content = `${message.snippet.superStickerDetails.superStickerMetadata.altText ?? ""} (${amountDisplayString}, ${message.snippet.superStickerDetails.tier})`;
-		// 	break;
+			content = `${message.snippet.superStickerDetails.superStickerMetadata?.altText ?? ""} (${amountDisplayString}, ${message.snippet.superStickerDetails.tier})`.trim();
+			break;
 		case "textMessageEvent":
 			content = message.snippet.textMessageDetails.messageText;
 			break;
@@ -227,14 +227,14 @@ function getEmbedColor(message: YouTubeLiveChatMessage | YtcMessage) {
 	}
 	let tier = 0;
 	switch (message.snippet.type) {
-		// case "newSponsorEvent":
-		// 	return 0x0f9d58; // 深綠
+		case "newSponsorEvent":
+			return 0x0f9d58; // 深綠
 		case "superChatEvent":
 			tier = message.snippet.superChatDetails.tier;
 			break;
-		// case "superStickerEvent":
-		// 	tier = message.snippet.superStickerDetails.tier;
-		// 	break;
+		case "superStickerEvent":
+			tier = message.snippet.superStickerDetails.tier;
+			break;
 	}
 	switch (tier) {
 		case 1:

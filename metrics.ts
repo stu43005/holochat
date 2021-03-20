@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { Counter, Gauge, register } from "prom-client";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
+import { BloomFilter } from "bloom-filters";
 import { cache } from "./cache";
 import { YtcMessage } from "./ytc-fetch-parser";
 
@@ -51,6 +52,17 @@ const counterReceiveMessages = new Counter({
 
 const messageLabels: Record<string, Set<string>> = {};
 
+const counterReceiveMessageUsers = new Counter({
+	name: "holochat_receive_message_users",
+	help: "Number of received user count",
+	labelNames: [...videoLabels, "type", "authorType"],
+});
+
+const userFilters: Record<string, {
+	[MessageType.TextMessage]?: BloomFilter;
+	[MessageType.SuperChat]?: BloomFilter;
+}> = {};
+
 const gaugeSuperChatValue = new Gauge({
 	name: "holochat_super_chat_value",
 	help: "Sum of super chat value",
@@ -97,6 +109,7 @@ export const counterFilterTestFailed = new Counter({
 
 const metrics = {
 	holochat_receive_messages: counterReceiveMessages,
+	holochat_receive_message_users: counterReceiveMessageUsers,
 	holochat_super_chat_value: gaugeSuperChatValue,
 	holochat_video_viewers: videoViewers,
 	holochat_video_start_time_seconds: videoStartTime,
@@ -181,6 +194,20 @@ export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessa
 	messageLabels[videoId].add(JSON.stringify(label));
 
 	counterReceiveMessages.labels(label).inc(1);
+
+	if (type === MessageType.SuperChat || type === MessageType.TextMessage) {
+		if (!userFilters[videoId]) userFilters[videoId] = {};
+		if (!userFilters[videoId][type] && type === MessageType.SuperChat) {
+			userFilters[videoId][type] = BloomFilter.create(1000, 0.02);
+		}
+		if (!userFilters[videoId][type] && type === MessageType.TextMessage) {
+			userFilters[videoId][type] = BloomFilter.create(10000, 0.02);
+		}
+		if (!userFilters[videoId][type]?.has(message.authorDetails.channelId)) {
+			counterReceiveMessageUsers.labels(label).inc(1);
+			userFilters[videoId][type]?.add(message.authorDetails.channelId);
+		}
+	}
 }
 
 export function removeVideoMetrics(live: VideoBase) {
@@ -190,6 +217,7 @@ export function removeVideoMetrics(live: VideoBase) {
 		messageLabels[videoId].forEach(l => {
 			const ll = JSON.parse(l);
 			counterReceiveMessages.remove(ll);
+			counterReceiveMessageUsers.remove(ll);
 		});
 		delete messageLabels[videoId];
 	}
@@ -200,6 +228,7 @@ export function removeVideoMetrics(live: VideoBase) {
 	videoUpTime.remove(label);
 	videoDuration.remove(label);
 	counterFilterTestFailed.remove(label);
+	delete userFilters[videoId];
 }
 
 //#endregion
@@ -207,13 +236,14 @@ export function removeVideoMetrics(live: VideoBase) {
 //#region delay remove metrics
 
 const removeMetricsTimer: Record<string, NodeJS.Timeout> = {};
-const removeMetricsTimerMs = 5 * 60 * 1000;
+const removeMetricsTimerMs = 10 * 60 * 1000;
 
 export function delayRemoveVideoMetrics(live: VideoBase) {
 	const videoId = live.youtubeId!;
 	deleteRemoveMetricsTimer(videoId);
 	removeMetricsTimer[videoId] = global.setTimeout(() => {
 		removeVideoMetrics(live);
+		delete removeMetricsTimer[videoId];
 	}, removeMetricsTimerMs);
 }
 

@@ -66,7 +66,7 @@ const userFilters: Record<string, {
 const gaugeSuperChatValue = new Gauge({
 	name: "holochat_super_chat_value",
 	help: "Sum of super chat value",
-	labelNames: videoLabels,
+	labelNames: [...videoLabels, "type", "authorType"],
 });
 
 const videoViewers = new Gauge({
@@ -159,7 +159,7 @@ export function updateVideoMetrics(live: VideoBase) {
 	videoUpTime.labels(label).set(endDate.getTime() / 1000);
 }
 
-export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessage | YtcMessage, marked = false) {
+export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessage | YtcMessage, marked = false, amount = 0) {
 	let type = MessageType.Other;
 	let authorType = MessageAuthorType.Other;
 	switch (message.snippet.type) {
@@ -195,6 +195,10 @@ export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessa
 
 	counterReceiveMessages.labels(label).inc(1);
 
+	if (amount > 0) {
+		gaugeSuperChatValue.labels(label).inc(amount);
+	}
+
 	if (type === MessageType.SuperChat || type === MessageType.TextMessage) {
 		if (!userFilters[videoId]) userFilters[videoId] = {};
 		if (!userFilters[videoId][type] && type === MessageType.SuperChat) {
@@ -218,10 +222,10 @@ export function removeVideoMetrics(live: VideoBase) {
 			const ll = JSON.parse(l);
 			counterReceiveMessages.remove(ll);
 			counterReceiveMessageUsers.remove(ll);
+			gaugeSuperChatValue.remove(ll);
 		});
 		delete messageLabels[videoId];
 	}
-	gaugeSuperChatValue.remove(label);
 	videoViewers.remove(label);
 	videoStartTime.remove(label);
 	videoEndTime.remove(label);

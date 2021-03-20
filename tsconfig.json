@@ -5,7 +5,8 @@
 			"./node_modules/@types",
 			"./typings",
 		],
-		"esModuleInterop": true
+		"esModuleInterop": true,
+		"resolveJsonModule": true
 	},
 	"exclude": [
 		"node_modules",

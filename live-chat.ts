@@ -7,7 +7,7 @@ import moment from "moment";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
 import { addMessageMetrics, counterFilterTestFailed, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, getVideoLabel, initVideoMetrics, removeVideoMetrics, restoreAllMetrics, updateVideoMetrics } from "./metrics";
-import { secondsToHms } from "./utils";
+import { currencyToJpyAmount, parseAmountDisplayString, secondsToHms } from "./utils";
 import { YtcMessage } from "./ytc-fetch-parser";
 import { YtcNoChrome } from "./ytc-nochrome";
 
@@ -153,7 +153,7 @@ function stopChatRecord(videoId: string, delayRemoveMetrics = false) {
 	logChatsCount();
 }
 
-function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {
+async function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {
 	const videoId = live.youtubeId;
 	const userName = message.authorDetails.displayName;
 	const userDetail: string[] = [
@@ -169,9 +169,8 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 	const timeCode = secondsToHms(time);
 
 	let content = "";
-	let amountDisplayString = "￥0";
-	// let amountMicros = 0;
-	// let currency = "";
+	let amountDisplayString = "";
+	let amount = 0;
 
 	switch (message.snippet.type) {
 		case "newSponsorEvent":
@@ -185,8 +184,8 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 			break;
 		case "superStickerEvent":
 			amountDisplayString = message.snippet.superStickerDetails.amountDisplayString;
-		// 	amountMicros = message.snippet.superStickerDetails.amountMicros;
-		// 	currency = message.snippet.superStickerDetails.currency;
+			// amountMicros = message.snippet.superStickerDetails.amountMicros;
+			// currency = message.snippet.superStickerDetails.currency;
 			content = `${message.snippet.superStickerDetails.superStickerMetadata?.altText ?? ""} (${amountDisplayString}, ${message.snippet.superStickerDetails.tier})`.trim();
 			break;
 		case "textMessageEvent":
@@ -194,7 +193,14 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 			break;
 	}
 
-	// const realAmount = getRealAmount(amountMicros, currency);
+	if (amountDisplayString) {
+		const value = parseAmountDisplayString(amountDisplayString);
+		if (value) {
+			const jpyAmount = await currencyToJpyAmount(value.amount, value.currency);
+			// console.debug(amountDisplayString, "convert to", jpyAmount.currency, jpyAmount.amount);
+			amount = jpyAmount.amount;
+		}
+	}
 
 	if (marked || message.authorDetails.isChatOwner || message.authorDetails.isChatModerator) {
 		console.log(`[${videoId}][${timeCode}] ${userName}${userDetail.length ? `(${userDetail.join(",")})` : ""}: ${content}`);
@@ -204,7 +210,7 @@ function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | Yt
 	}
 
 	updateVideoMetrics(live);
-	addMessageMetrics(live, message, marked);
+	addMessageMetrics(live, message, marked, amount);
 }
 
 function postDiscord(live: LiveLivestream, chatMessage: YouTubeLiveChatMessage | YtcMessage, content: string, time: number) {

@@ -1,53 +1,54 @@
-export function getRealAmount(amountMicros: number, currency: string) {
-	switch (currency) {
-		case "GBP": // 1GBP=?JPY
-			amountMicros = amountMicros * 139;
-			break;
-		case "PEN": // 1PEN=?JPY
-			amountMicros = amountMicros * 32.43;
-			break;
-		case "TWD": // 1TWD=?JPY
-			amountMicros = amountMicros * 3.5;
-			break;
-		case "USD": // 1USD=?JPY
-			amountMicros = amountMicros * 108;
-			break;
-		case "EUR": // 1EUR=?JPY
-			amountMicros = amountMicros * 120;
-			break;
-		case "KRW": // 1KRW=?JPY
-			amountMicros = amountMicros * 0.09;
-			break;
-		case "SEK": // 1SEK=?JPY
-			amountMicros = amountMicros * 11.22;
-			break;
-		case "AUD": // 1AUD=?JPY
-			amountMicros = amountMicros * 74.14;
-			break;
-		case "CAD": // 1CAD=?JPY
-			amountMicros = amountMicros * 83.21;
-			break;
-		case "BRL": // 1BRL=?JPY
-			amountMicros = amountMicros * 27.15;
-			break;
-		case "MXN": // 1MXN=?JPY
-			amountMicros = amountMicros * 5.7;
-			break;
-		case "HKD": // 1HKD=?JPY
-			amountMicros = amountMicros * 13.86;
-			break;
-		case "RUB": // 1RUB=?JPY
-			amountMicros = amountMicros * 1.71;
-			break;
-		case "PHP": // 1PHP=?JPY
-			amountMicros = amountMicros * 2.13;
-			break;
-		case "INR": // 1INR=?JPY
-			amountMicros = amountMicros * 1.53;
-			break;
-	}
+import currencyConverter from "currency-converter";
+import config from "config";
+import currencymap from "./currencymap.json";
 
-	return Math.floor(amountMicros / 1000000);
+const cc = currencyConverter({
+	CLIENTKEY: config.get<string>("open_exchange_rates_app_id"),
+});
+
+const amountRegex = /^(?<currency>(?:[A-Z]{1,2})?\$|(?:[A-Z]{2})?¥|£|€|₹|￦|₪|₫|[A-Z]{3})\s?(?<amount>(?:\d{1,3},(?:\d{3},)*\d{3}|\d+)(?:\.\d+)?)$/;
+
+export function parseAmountDisplayString(amountDisplayString: string) {
+	const match = amountDisplayString.match(amountRegex);
+	const amount = parseFloat(match?.groups?.amount?.replace(/,/g, "") ?? "");
+	const currency = match?.groups?.currency;
+	if (isNaN(amount) || !currency) {
+		console.error(`Cannot parse amount: "${amountDisplayString}"`);
+		return;
+	}
+	return {
+		amount,
+		currency,
+	};
+}
+
+export async function currencyToJpyAmount(amount: number, currency: string) {
+	let currencymapEntry: undefined | typeof currencymap.JPY;
+	for (const key of ["code", "symbol", "symbol_native"] as const) {
+		currencymapEntry = Object.values(currencymap).find(entry => entry[key] === currency);
+		if (currencymapEntry) break;
+	}
+	if (!currencymapEntry) {
+		console.error(`Unrecognizable currency: "${currency}"`);
+		return {
+			amount,
+			currency,
+		};
+	}
+	try {
+		const jpyAmount = await cc.convert(amount, currencymapEntry.code, "JPY");
+		return {
+			amount: jpyAmount.amount,
+			currency: "¥",
+		};
+	}
+	catch (error) {
+		console.error(error);
+		return {
+			amount,
+			currency,
+		};
+	}
 }
 
 export function secondsToHms(d: number) {

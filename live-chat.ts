@@ -6,7 +6,7 @@ import { MessageEmbed, WebhookClient } from "discord.js";
 import moment from "moment";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
-import { addMessageMetrics, counterFilterTestFailed, getVideoLabel, initVideoMetrics, removeVideoMetrics, restoreAllMetrics, updateVideoMetrics } from "./metrics";
+import { addMessageMetrics, counterFilterTestFailed, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, getVideoLabel, initVideoMetrics, removeVideoMetrics, restoreAllMetrics, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
 import { YtcMessage } from "./ytc-fetch-parser";
 import { YtcNoChrome } from "./ytc-nochrome";
@@ -92,6 +92,7 @@ export async function fetchChannel() {
 async function startChatRecord(videoId: string) {
 	cache.sadd(KEY_YOUTUBE_LIVE_IDS, videoId);
 
+	deleteRemoveMetricsTimer(videoId);
 	const live = cache.get<LiveLivestream>(videoId);
 	if (live) initVideoMetrics(live);
 
@@ -125,7 +126,7 @@ async function startChatRecord(videoId: string) {
 				// dont remove metrics
 			}
 			else {
-				stopChatRecord(videoId);
+				stopChatRecord(videoId, true);
 				ytcHeadless.stop(videoId);
 			}
 		},
@@ -137,13 +138,13 @@ async function startChatRecord(videoId: string) {
 	logChatsCount();
 }
 
-function stopChatRecord(videoId: string, remove = true) {
-	if (remove) cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
+function stopChatRecord(videoId: string, delayRemoveMetrics = false) {
+	cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
 
 	const live = cache.get<LiveLivestream>(videoId);
 	if (live) {
-		updateVideoMetrics(live);
-		removeVideoMetrics(live);
+		if (delayRemoveMetrics) delayRemoveVideoMetrics(live);
+		else removeVideoMetrics(live);
 	}
 
 	delete messageFilters[videoId];

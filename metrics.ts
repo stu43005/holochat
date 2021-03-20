@@ -6,6 +6,8 @@ import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
 import { YtcMessage } from "./ytc-fetch-parser";
 
+//#region types
+
 const videoLabels = ["channelId", "channelName", "videoId", "title"] as const;
 
 interface VideoLabel {
@@ -36,6 +38,10 @@ interface MessageLabel extends VideoLabel {
 	type: MessageType;
 	authorType: MessageAuthorType;
 }
+
+//#endregion
+
+//#region metrics
 
 const counterReceiveMessages = new Counter({
 	name: "holochat_receive_messages",
@@ -99,6 +105,10 @@ const metrics = {
 	holochat_video_duration_seconds: videoDuration,
 	holochat_filter_test_failed: counterFilterTestFailed,
 };
+
+//#endregion
+
+//#region functions
 
 export function getVideoLabel(live: VideoBase): VideoLabel {
 	const cacheKey = `metrics_video_label_${live.youtubeId}`;
@@ -192,6 +202,32 @@ export function removeVideoMetrics(live: VideoBase) {
 	counterFilterTestFailed.remove(label);
 }
 
+//#endregion
+
+//#region delay remove metrics
+
+const removeMetricsTimer: Record<string, NodeJS.Timeout> = {};
+const removeMetricsTimerMs = 5 * 60 * 1000;
+
+export function delayRemoveVideoMetrics(live: VideoBase) {
+	const videoId = live.youtubeId!;
+	deleteRemoveMetricsTimer(videoId);
+	removeMetricsTimer[videoId] = global.setTimeout(() => {
+		removeVideoMetrics(live);
+	}, removeMetricsTimerMs);
+}
+
+export function deleteRemoveMetricsTimer(videoId: string) {
+	if (removeMetricsTimer[videoId]) {
+		global.clearTimeout(removeMetricsTimer[videoId]);
+		delete removeMetricsTimer[videoId];
+	}
+}
+
+//#endregion
+
+//#region backup metrics
+
 const backupPath = path.join(__dirname, "backup_metrics.json");
 
 async function handleExit(signal: NodeJS.Signals) {
@@ -251,3 +287,5 @@ function restoreVideoMetrics(backup: any[], videoId: string) {
 		}
 	}
 }
+
+//#endregion

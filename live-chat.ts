@@ -57,7 +57,7 @@ export async function fetchChannel() {
 
 	if (!inited) {
 		inited = true;
-		restoreAllMetrics(now.map(live => live.youtubeId!));
+		restoreAllMetrics(now);
 	}
 
 	const lived = cache.get<string[]>(KEY_YOUTUBE_LIVE_IDS) ?? [];

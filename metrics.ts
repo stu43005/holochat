@@ -252,16 +252,18 @@ function readBackupMetrics() {
 	}
 }
 
-export function restoreAllMetrics(videoIds: string[]) {
+export function restoreAllMetrics(now: VideoBase[]) {
 	const backup = readBackupMetrics();
 	if (!backup) return;
 
-	for (const videoId of videoIds) {
-		restoreVideoMetrics(backup, videoId);
+	for (const live of now) {
+		restoreVideoMetrics(backup, live);
 	}
 }
 
-function restoreVideoMetrics(backup: any[], videoId: string) {
+function restoreVideoMetrics(backup: any[], live: VideoBase) {
+	const label = getVideoLabel(live);
+	const videoId = live.youtubeId!;
 	const keys: (keyof typeof metrics)[] = Object.keys(metrics) as any;
 	for (const key of keys) {
 		const metric = metrics[key];
@@ -271,18 +273,22 @@ function restoreVideoMetrics(backup: any[], videoId: string) {
 		if (!values?.length) continue;
 
 		for (const value of values) {
-			if (!value.labels || !value.value) continue;
+			const valueLabel = {
+				...value.labels,
+				...label,
+			};
+			if (!value.value) continue;
 
 			if (metric instanceof Gauge) {
-				metric.labels(value.labels).set(value.value);
+				metric.labels(valueLabel).set(value.value);
 			}
 			else if (metric instanceof Counter) {
-				metric.labels(value.labels).inc(value.value);
+				metric.labels(valueLabel).inc(value.value);
 			}
 
 			if (key === "holochat_receive_messages") {
 				if (!messageLabels[videoId]) messageLabels[videoId] = new Set();
-				messageLabels[videoId].add(JSON.stringify(value.labels));
+				messageLabels[videoId].add(JSON.stringify(valueLabel));
 			}
 		}
 	}

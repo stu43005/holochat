@@ -6,6 +6,7 @@ import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { BloomFilter } from "bloom-filters";
 import { cache } from "./cache";
 import { YtcMessage } from "./ytc-fetch-parser";
+import { bloomFilterFromJSON, bloomFilterSaveAsJSON } from "./bloom-filter-extension";
 
 //#region types
 
@@ -124,13 +125,17 @@ const metrics = {
 //#region functions
 
 export function getVideoLabel(live: VideoBase): VideoLabel {
-	const cacheKey = `metrics_video_label_${live.youtubeId}`;
+	const cacheKey = getVideoLabelKey(live.youtubeId!);
 	return cache.getDefault(cacheKey, () => ({
 		channelId: live.channel.youtubeId,
 		channelName: live.channel.name,
 		videoId: live.youtubeId!,
 		title: live.title,
 	}));
+}
+
+function getVideoLabelKey(videoId: string) {
+	return `metrics_video_label_${videoId}`;
 }
 
 export function initVideoMetrics(live: VideoBase) {
@@ -205,7 +210,7 @@ export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessa
 			userFilters[videoId][type] = BloomFilter.create(1000, 0.02);
 		}
 		if (!userFilters[videoId][type] && type === MessageType.TextMessage) {
-			userFilters[videoId][type] = BloomFilter.create(10000, 0.02);
+			userFilters[videoId][type] = BloomFilter.create(15000, 0.02);
 		}
 		if (!userFilters[videoId][type]?.has(message.authorDetails.channelId)) {
 			counterReceiveMessageUsers.labels(label).inc(1);
@@ -263,11 +268,25 @@ export function deleteRemoveMetricsTimer(videoId: string) {
 //#region backup metrics
 
 const backupPath = path.join(__dirname, "backup_metrics.json");
+const backupUserFiltersPath = path.join(__dirname, "backup_user_filters.json");
+let receivedSignal = false;
 
 async function handleExit(signal: NodeJS.Signals) {
 	console.log(`Received ${signal}`);
-	const json = await register.getMetricsAsJSON();
-	fs.writeFileSync(backupPath, JSON.stringify(json));
+	if (!receivedSignal) {
+		receivedSignal = true;
+
+		const json = await register.getMetricsAsJSON();
+		fs.writeFileSync(backupPath, JSON.stringify(json));
+
+		const userFiltersJson = JSON.stringify(userFilters, (key, value) => {
+			if (value instanceof BloomFilter) {
+				return bloomFilterSaveAsJSON(value);
+			}
+			return value;
+		});
+		fs.writeFileSync(backupUserFiltersPath, userFiltersJson);
+	}
 	process.exit(0);
 };
 
@@ -275,9 +294,9 @@ process.on("SIGINT", handleExit);
 process.on("SIGTERM", handleExit);
 process.on("SIGUSR2", handleExit); // for nodemon
 
-function readBackupMetrics() {
+function readJsonFile(filepath: string) {
 	try {
-		const content = fs.readFileSync(backupPath, { encoding: "utf8" });
+		const content = fs.readFileSync(filepath, { encoding: "utf8" });
 		const json = JSON.parse(content);
 		return json;
 	}
@@ -287,16 +306,31 @@ function readBackupMetrics() {
 }
 
 export function restoreAllMetrics(now: VideoBase[]) {
-	const backup = readBackupMetrics();
-	if (!backup) return;
+	const backup = readJsonFile(backupPath);
+	if (backup) {
+		for (const live of now) {
+			restoreVideoMetrics(backup, live);
+		}
+	}
 
-	for (const live of now) {
-		restoreVideoMetrics(backup, live);
+	const userFiltersBackup = readJsonFile(backupUserFiltersPath);
+	if (userFiltersBackup) {
+		const userFiltersBackup2 = JSON.parse(JSON.stringify(userFiltersBackup), (key, value) => {
+			if (typeof value === "object" && value.type === "bloom-filter") {
+				return bloomFilterFromJSON(value);
+			}
+			return value;
+		});
+		for (const live of now) {
+			const videoId = live.youtubeId!;
+			if (userFiltersBackup2[videoId]) {
+				userFilters[videoId] = userFiltersBackup2[videoId];
+			}
+		}
 	}
 }
 
 function restoreVideoMetrics(backup: any[], live: VideoBase) {
-	const label = getVideoLabel(live);
 	const videoId = live.youtubeId!;
 	const keys: (keyof typeof metrics)[] = Object.keys(metrics) as any;
 	for (const key of keys) {
@@ -307,23 +341,28 @@ function restoreVideoMetrics(backup: any[], live: VideoBase) {
 		if (!values?.length) continue;
 
 		for (const value of values) {
-			const valueLabel = {
-				...value.labels,
-				...label,
-			};
-			if (!value.value) continue;
+			const valueLabel = value.labels;
+			const valueValue = value.value;
+			if (!valueLabel || !valueValue) continue;
 
 			if (metric instanceof Gauge) {
-				metric.labels(valueLabel).set(value.value);
+				metric.labels(valueLabel).set(valueValue);
 			}
 			else if (metric instanceof Counter) {
-				metric.labels(valueLabel).inc(value.value);
+				metric.labels(valueLabel).inc(valueValue);
 			}
 
 			if (key === "holochat_receive_messages") {
 				if (!messageLabels[videoId]) messageLabels[videoId] = new Set();
 				messageLabels[videoId].add(JSON.stringify(valueLabel));
 			}
+
+			cache.set(getVideoLabelKey(videoId), {
+				channelId: valueLabel.channelId,
+				channelName: valueLabel.channelName,
+				videoId: valueLabel.videoId,
+				title: valueLabel.title,
+			});
 		}
 	}
 }

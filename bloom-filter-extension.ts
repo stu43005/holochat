@@ -1,5 +1,8 @@
 import { BloomFilter } from "bloom-filters";
 
+/**
+ * @deprecated
+ */
 export function bloomFilterSaveAsJSON(filter: BloomFilter) {
 	const self = filter as any;
 	const json = {
@@ -13,6 +16,9 @@ export function bloomFilterSaveAsJSON(filter: BloomFilter) {
 	return JSON.parse(JSON.stringify(json));
 }
 
+/**
+ * @deprecated
+ */
 export function bloomFilterFromJSON(json: any) {
 	if (json.type !== "bloom-filter") return;
 	const filter = new BloomFilter(json.size, json.nbHashes);

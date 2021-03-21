@@ -1,12 +1,12 @@
 import { VideoBase } from "@holores/holoapi/dist/types";
+import { BloomFilter } from "bloom-filters";
 import fs from "fs";
 import path from "path";
 import { Counter, Gauge, register } from "prom-client";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
-import { BloomFilter } from "bloom-filters";
+import { bloomFilterFromJSON } from "./bloom-filter-extension";
 import { cache } from "./cache";
 import { YtcMessage } from "./ytc-fetch-parser";
-import { bloomFilterFromJSON, bloomFilterSaveAsJSON } from "./bloom-filter-extension";
 
 //#region types
 
@@ -281,7 +281,7 @@ async function handleExit(signal: NodeJS.Signals) {
 
 		const userFiltersJson = JSON.stringify(userFilters, (key, value) => {
 			if (value instanceof BloomFilter) {
-				return bloomFilterSaveAsJSON(value);
+				return value.saveAsJSON();
 			}
 			return value;
 		});
@@ -318,6 +318,9 @@ export function restoreAllMetrics(now: VideoBase[]) {
 		const userFiltersBackup2 = JSON.parse(JSON.stringify(userFiltersBackup), (key, value) => {
 			if (typeof value === "object" && value.type === "bloom-filter") {
 				return bloomFilterFromJSON(value);
+			}
+			if (typeof value === "object" && value.type === "BloomFilter") {
+				return BloomFilter.fromJSON(value);
 			}
 			return value;
 		});

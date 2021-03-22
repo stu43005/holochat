@@ -139,8 +139,6 @@ function getVideoLabelKey(videoId: string) {
 }
 
 export function initVideoMetrics(live: VideoBase) {
-	const label = getVideoLabel(live);
-	videoViewers.labels(label).set(0);
 	updateVideoMetrics(live);
 }
 
@@ -148,6 +146,9 @@ export function updateVideoMetrics(live: VideoBase) {
 	const label = getVideoLabel(live);
 	if (live.viewers) {
 		videoViewers.labels(label).set(live.viewers);
+	}
+	else {
+		videoViewers.labels(label).set(0);
 	}
 	const endDate = live.endDate ?? new Date();
 	if (live.startDate) {

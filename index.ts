@@ -1,8 +1,5 @@
-import { CronJob } from "cron";
 import express from "express";
-import path from "path";
 import { collectDefaultMetrics, register } from "prom-client";
-import requireAll from "require-all";
 import { fetchChannel } from "./live-chat";
 
 collectDefaultMetrics();
@@ -18,20 +15,17 @@ process
 		process.exit(1);
 	});
 
-// init cron
-const jobs: Record<string, () => CronJob> = requireAll({
-	dirname: path.join(__dirname, "crons"),
-	filter: /^([^\.].*)(?<!\.ignore)\.cron\.ts$/,
-	resolve(module) {
-		return module.default;
-	},
-});
-
-Object.values(jobs).forEach(job => {
-	job().start();
-});
-
 fetchChannel();
+
+// main event loop
+global.setInterval(async () => {
+	try {
+		await fetchChannel();
+	}
+	catch (error) {
+		console.error("fetchChannel error");
+	}
+}, 60 * 1000);
 
 // init express server
 const app = express();

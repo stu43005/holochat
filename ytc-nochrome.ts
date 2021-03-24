@@ -1,6 +1,6 @@
 import cheerio from "cheerio";
 import _ from "lodash";
-import fetch from "node-fetch";
+import fetch, { FetchError } from "node-fetch";
 import { Subject } from "rxjs";
 import { fetchParser, YtcMessage } from "./ytc-fetch-parser";
 import { GetLiveChatBody, GetLiveChatData, Ytcfg } from "./ytc-nochrome.d";
@@ -99,6 +99,7 @@ function parseLiveChatPage(videoId: string, html: string): GetLiveChatData | str
 				visitorData,
 				body,
 				timeoutMs,
+				retry: 0,
 			};
 		}
 		return firstMessage;
@@ -151,6 +152,7 @@ export class YtcNoChrome {
 								this.subjectCache[videoId].next(msg);
 							}
 							if (nextData) {
+								nextData.retry = 0;
 								nextFetchLoop(nextData);
 							}
 							else {
@@ -159,8 +161,14 @@ export class YtcNoChrome {
 						}
 					}
 					catch (error) {
-						this.subjectCache[videoId]?.error(error);
-						this.stop(videoId);
+						if (error instanceof FetchError && data.retry < 5) {
+							data.retry++;
+							nextFetchLoop(data);
+						}
+						else {
+							this.subjectCache[videoId]?.error(error);
+							this.stop(videoId);
+						}
 					}
 				}, Math.min(data.timeoutMs, 60000));
 			};

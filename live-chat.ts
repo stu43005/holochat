@@ -63,10 +63,12 @@ export async function fetchChannel() {
 	const lived = cache.get<string[]>(KEY_YOUTUBE_LIVE_IDS) ?? [];
 	for (const videoId of lived) {
 		const live = now.find(l => l.youtubeId === videoId);
-		if (live) continue;
+		if (live) {
+			deleteStopRecordTimer(videoId);
+			continue;
+		}
 
-		await ytcHeadless.stop(videoId);
-		stopChatRecord(videoId);
+		delayStopRecord(videoId);
 	}
 
 	for (const live of now) {
@@ -92,6 +94,7 @@ export async function fetchChannel() {
 async function startChatRecord(videoId: string) {
 	cache.sadd(KEY_YOUTUBE_LIVE_IDS, videoId);
 
+	deleteStopRecordTimer(videoId);
 	deleteRemoveMetricsTimer(videoId);
 	const live = cache.get<LiveLivestream>(videoId);
 	if (live) initVideoMetrics(live);
@@ -138,13 +141,12 @@ async function startChatRecord(videoId: string) {
 	logChatsCount();
 }
 
-function stopChatRecord(videoId: string, delayRemoveMetrics = false) {
+function stopChatRecord(videoId: string, onError = false) {
 	cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
 
 	const live = cache.get<LiveLivestream>(videoId);
 	if (live) {
-		if (delayRemoveMetrics) delayRemoveVideoMetrics(live);
-		else removeVideoMetrics(live);
+		delayRemoveVideoMetrics(live);
 	}
 
 	delete messageFilters[videoId];
@@ -152,6 +154,29 @@ function stopChatRecord(videoId: string, delayRemoveMetrics = false) {
 	console.log(`Stop record: ${videoId}`);
 	logChatsCount();
 }
+
+//#region delay stop
+
+const stopRecordTimer: Record<string, NodeJS.Timeout> = {};
+const stopRecordTimerMs = 5 * 60 * 1000;
+
+export function delayStopRecord(videoId: string) {
+	deleteStopRecordTimer(videoId);
+	stopRecordTimer[videoId] = global.setTimeout(() => {
+		ytcHeadless.stop(videoId);
+		stopChatRecord(videoId);
+		delete stopRecordTimer[videoId];
+	}, stopRecordTimerMs);
+}
+
+export function deleteStopRecordTimer(videoId: string) {
+	if (stopRecordTimer[videoId]) {
+		global.clearTimeout(stopRecordTimer[videoId]);
+		delete stopRecordTimer[videoId];
+	}
+}
+
+//#endregion
 
 async function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {
 	const videoId = live.youtubeId;

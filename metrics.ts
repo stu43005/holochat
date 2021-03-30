@@ -250,11 +250,12 @@ const removeMetricsTimerMs = 10 * 60 * 1000;
 
 export function delayRemoveVideoMetrics(live: VideoBase) {
 	const videoId = live.youtubeId!;
-	deleteRemoveMetricsTimer(videoId);
-	removeMetricsTimer[videoId] = global.setTimeout(() => {
-		removeVideoMetrics(live);
-		delete removeMetricsTimer[videoId];
-	}, removeMetricsTimerMs);
+	if (!removeMetricsTimer[videoId]) {
+		removeMetricsTimer[videoId] = global.setTimeout(() => {
+			removeVideoMetrics(live);
+			delete removeMetricsTimer[videoId];
+		}, removeMetricsTimerMs);
+	}
 }
 
 export function deleteRemoveMetricsTimer(videoId: string) {

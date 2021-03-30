@@ -161,12 +161,13 @@ const stopRecordTimer: Record<string, NodeJS.Timeout> = {};
 const stopRecordTimerMs = 5 * 60 * 1000;
 
 export function delayStopRecord(videoId: string) {
-	deleteStopRecordTimer(videoId);
-	stopRecordTimer[videoId] = global.setTimeout(() => {
-		ytcHeadless.stop(videoId);
-		stopChatRecord(videoId);
-		delete stopRecordTimer[videoId];
-	}, stopRecordTimerMs);
+	if (!stopRecordTimer[videoId]) {
+		stopRecordTimer[videoId] = global.setTimeout(() => {
+			ytcHeadless.stop(videoId);
+			stopChatRecord(videoId);
+			delete stopRecordTimer[videoId];
+		}, stopRecordTimerMs);
+	}
 }
 
 export function deleteStopRecordTimer(videoId: string) {

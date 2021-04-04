@@ -269,8 +269,8 @@ export function deleteRemoveMetricsTimer(videoId: string) {
 
 //#region backup metrics
 
-const backupPath = path.join(__dirname, "backup_metrics.json");
-const backupUserFiltersPath = path.join(__dirname, "backup_user_filters.json");
+const backupPath = path.join(__dirname, "backup/backup_metrics.json");
+const backupUserFiltersPath = path.join(__dirname, "backup/backup_user_filters.json");
 let receivedSignal = false;
 
 async function handleExit(signal: NodeJS.Signals) {

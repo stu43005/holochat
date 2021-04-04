@@ -1,0 +1,14 @@
+name: holochat-crawler
+services:
+  holochat-crawler:
+    public: true
+    image: okteto/holochat-crawler:stacks
+    build: .
+    replicas: 1
+    ports:
+      - 8080
+    resources:
+      cpu: 300m
+      memory: 500Mi
+    volumes:
+      - /backup

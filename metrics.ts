@@ -60,7 +60,14 @@ const counterReceiveMessageUsers = new Counter({
 });
 
 const userFilters: Record<string, {
-	[MessageType.TextMessage]?: BloomFilter;
+	[MessageType.TextMessage]?: {
+		[MessageAuthorType.Owner]?: Set<string>;
+		[MessageAuthorType.Marked]?: Set<string>;
+		[MessageAuthorType.Moderator]?: Set<string>;
+		[MessageAuthorType.Sponsor]?: BloomFilter;
+		[MessageAuthorType.Verified]?: Set<string>;
+		[MessageAuthorType.Other]?: BloomFilter;
+	};
 	[MessageType.SuperChat]?: BloomFilter;
 }> = {};
 
@@ -165,9 +172,8 @@ export function updateVideoMetrics(live: VideoBase) {
 	videoUpTime.labels(label).set(endDate.getTime() / 1000);
 }
 
-export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessage | YtcMessage, marked = false, amount = 0) {
+function getMessageType(message: YouTubeLiveChatMessage | YtcMessage) {
 	let type = MessageType.Other;
-	let authorType = MessageAuthorType.Other;
 	switch (message.snippet.type) {
 		case "newSponsorEvent":
 			type = MessageType.NewSponsor;
@@ -182,12 +188,22 @@ export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessa
 			type = MessageType.TextMessage;
 			break;
 	}
+	return type;
+}
 
+function getMessageAuthorType(message: YouTubeLiveChatMessage | YtcMessage, marked = false) {
+	let authorType = MessageAuthorType.Other;
 	if (message.authorDetails.isChatOwner) authorType = MessageAuthorType.Owner;
 	else if (marked) authorType = MessageAuthorType.Marked;
 	else if (message.authorDetails.isChatModerator) authorType = MessageAuthorType.Moderator;
 	else if (message.authorDetails.isChatSponsor) authorType = MessageAuthorType.Sponsor;
 	else if (message.authorDetails.isVerified) authorType = MessageAuthorType.Verified;
+	return authorType;
+}
+
+export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessage | YtcMessage, marked = false, amount = 0) {
+	const type = getMessageType(message);
+	const authorType = getMessageAuthorType(message, marked);
 
 	const label: MessageLabel = {
 		...getVideoLabel(live),
@@ -205,19 +221,58 @@ export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessa
 		gaugeSuperChatValue.labels(label).inc(amount);
 	}
 
-	if (type === MessageType.SuperChat || type === MessageType.TextMessage) {
-		if (!userFilters[videoId]) userFilters[videoId] = {};
-		if (!userFilters[videoId][type] && type === MessageType.SuperChat) {
-			userFilters[videoId][type] = BloomFilter.create(1000, 0.02);
-		}
-		if (!userFilters[videoId][type] && type === MessageType.TextMessage) {
-			userFilters[videoId][type] = BloomFilter.create(15000, 0.02);
+	if (!userFilters[videoId]) userFilters[videoId] = {};
+	if (type === MessageType.SuperChat) {
+		if (!userFilters[videoId][type]) {
+			userFilters[videoId][type] = BloomFilter.create(2000, 0.02);
 		}
 		if (!userFilters[videoId][type]?.has(message.authorDetails.channelId)) {
 			counterReceiveMessageUsers.labels(label).inc(1);
 			userFilters[videoId][type]?.add(message.authorDetails.channelId);
 		}
 	}
+	if (type === MessageType.TextMessage) {
+		if (!userFilters[videoId][type]) userFilters[videoId][type] = {};
+		const textMessage = userFilters[videoId][type]!;
+		if (!textMessage[authorType]) {
+			switch (authorType) {
+				case MessageAuthorType.Owner:
+				case MessageAuthorType.Marked:
+				case MessageAuthorType.Moderator:
+				case MessageAuthorType.Verified:
+					textMessage[authorType] = new Set();
+					break;
+				case MessageAuthorType.Sponsor:
+					textMessage[authorType] = BloomFilter.create(5000, 0.02);
+					break;
+				case MessageAuthorType.Other:
+					textMessage[authorType] = BloomFilter.create(15000, 0.02);
+					break;
+			}
+		}
+		if (!Object.values(textMessage).some(set => set?.has(message.authorDetails.channelId))) {
+			counterReceiveMessageUsers.labels(label).inc(1);
+			textMessage[authorType]?.add(message.authorDetails.channelId);
+		}
+	}
+}
+
+export function guessMessageAuthorType(live: VideoBase, message: YouTubeLiveChatMessage | YtcMessage) {
+	const authorType = getMessageAuthorType(message);
+	if (authorType !== MessageAuthorType.Other) return;
+
+	const type = getMessageType(message);
+	if (type !== MessageType.SuperChat && type !== MessageType.SuperSticker) return;
+
+	const videoId = live.youtubeId!;
+	const textMessage = userFilters[videoId]?.[MessageType.TextMessage];
+	if (!textMessage) return;
+
+	const channelId = message.authorDetails.channelId;
+	if (textMessage[MessageAuthorType.Owner]?.has(channelId)) message.authorDetails.isChatOwner = true;
+	else if (textMessage[MessageAuthorType.Moderator]?.has(channelId)) message.authorDetails.isChatModerator = true;
+	else if (textMessage[MessageAuthorType.Sponsor]?.has(channelId)) message.authorDetails.isChatSponsor = true;
+	else if (textMessage[MessageAuthorType.Verified]?.has(channelId)) message.authorDetails.isVerified = true;
 }
 
 export function removeVideoMetrics(live: VideoBase) {
@@ -291,6 +346,12 @@ async function handleExit(signal: NodeJS.Signals) {
 			if (value instanceof BloomFilter) {
 				return value.saveAsJSON();
 			}
+			if (value instanceof Set) {
+				return {
+					type: "Set",
+					data: [...value],
+				};
+			}
 			return value;
 		});
 		fs.writeFileSync(backupUserFiltersPath, userFiltersJson);
@@ -330,11 +391,21 @@ export function restoreAllMetrics(now: VideoBase[]) {
 			if (typeof value === "object" && value.type === "BloomFilter") {
 				return BloomFilter.fromJSON(value);
 			}
+			if (typeof value === "object" && value.type === "Set") {
+				return new Set<string>(value.data);
+			}
 			return value;
 		});
 		for (const live of now) {
 			const videoId = live.youtubeId!;
 			if (userFiltersBackup2[videoId]) {
+				// convert old backup
+				if (userFiltersBackup2[videoId][MessageType.TextMessage] instanceof BloomFilter) {
+					userFiltersBackup2[videoId][MessageType.TextMessage] = {
+						[MessageAuthorType.Other]: userFiltersBackup2[videoId][MessageType.TextMessage],
+					};
+				}
+
 				userFilters[videoId] = userFiltersBackup2[videoId];
 			}
 		}

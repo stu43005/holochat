@@ -26,7 +26,6 @@
     "node-fetch": "^2.6.1",
     "printable-characters": "^1.0.42",
     "prom-client": "^13.1.0",
-    "puppeteer": "^8.0.0",
     "rxjs": "^6.6.6",
     "youtube-live-chat-ts": "^0.2.4"
   },

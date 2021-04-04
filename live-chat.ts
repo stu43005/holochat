@@ -15,9 +15,6 @@ const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
 const holoapi = new Client();
 // const ytchat = new MyYouTubeLiveChat(config.get<string>("google_api_key"));
-// const ytcHeadless = new YtcHeadless({
-// 	headless: true,
-// });
 const ytcHeadless = new YtcNoChrome();
 const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<string>("discord_token"));
 

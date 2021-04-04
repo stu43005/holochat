@@ -17,4 +17,4 @@ services:
       - DISCORD_WEBHOOK_ID=$DISCORD_WEBHOOK_ID
       - DISCORD_WEBHOOK_TOKEN=$DISCORD_WEBHOOK_TOKEN
       - OPEN_EXCHANGE_RATES_APP_ID=$OPEN_EXCHANGE_RATES_APP_ID
-    stop_grace_period: 5
+    stop_grace_period: 30

@@ -279,6 +279,12 @@ async function handleExit(signal: NodeJS.Signals) {
 		receivedSignal = true;
 
 		const json = await register.getMetricsAsJSON();
+		try {
+			fs.mkdirSync(path.dirname(backupPath));
+		}
+		catch (e) {
+			// nothing
+		}
 		fs.writeFileSync(backupPath, JSON.stringify(json));
 
 		const userFiltersJson = JSON.stringify(userFilters, (key, value) => {

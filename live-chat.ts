@@ -71,7 +71,7 @@ export async function fetchChannel() {
 	for (const live of now) {
 		const videoId = live.youtubeId;
 		if (!videoId) continue;
-		if (channels.length && !channels.includes(live.channel.youtubeId)) continue; // Not in channel list
+		// if (channels.length && !channels.includes(live.channel.youtubeId)) continue; // Not in channel list
 
 		cache.set(videoId, live);
 		if (cache.sismember(KEY_YOUTUBE_LIVE_IDS, videoId)) {

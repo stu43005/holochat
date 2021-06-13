@@ -74,7 +74,7 @@ const userFilters: Record<string, {
 const gaugeSuperChatValue = new Gauge({
 	name: "holochat_super_chat_value",
 	help: "Sum of super chat value",
-	labelNames: [...videoLabels, "type", "authorType"],
+	labelNames: [...videoLabels, "type", "authorType", "currency"],
 });
 
 const videoViewers = new Gauge({
@@ -201,7 +201,7 @@ function getMessageAuthorType(message: YouTubeLiveChatMessage | YtcMessage, mark
 	return authorType;
 }
 
-export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessage | YtcMessage, marked = false, amount = 0) {
+export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessage | YtcMessage, marked = false, amount = 0, currency = "") {
 	const type = getMessageType(message);
 	const authorType = getMessageAuthorType(message, marked);
 
@@ -218,7 +218,12 @@ export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessa
 	counterReceiveMessages.labels(label).inc(1);
 
 	if (amount > 0) {
-		gaugeSuperChatValue.labels(label).inc(amount);
+		const scLabel = {
+			...label,
+			currency,
+		};
+		gaugeSuperChatValue.labels(scLabel).inc(amount);
+		messageLabels[videoId].add(JSON.stringify(scLabel));
 	}
 
 	if (!userFilters[videoId]) userFilters[videoId] = {};
@@ -281,9 +286,13 @@ export function removeVideoMetrics(live: VideoBase) {
 	if (messageLabels[videoId]) {
 		messageLabels[videoId].forEach(l => {
 			const ll = JSON.parse(l);
-			counterReceiveMessages.remove(ll);
-			counterReceiveMessageUsers.remove(ll);
-			gaugeSuperChatValue.remove(ll);
+			if (ll.currency) {
+				gaugeSuperChatValue.remove(ll);
+			}
+			else {
+				counterReceiveMessages.remove(ll);
+				counterReceiveMessageUsers.remove(ll);
+			}
 		});
 		delete messageLabels[videoId];
 	}
@@ -434,7 +443,7 @@ function restoreVideoMetrics(backup: any[], live: VideoBase) {
 				metric.labels(valueLabel).inc(valueValue);
 			}
 
-			if (key === "holochat_receive_messages") {
+			if (key === "holochat_receive_messages" || key === "holochat_super_chat_value") {
 				if (!messageLabels[videoId]) messageLabels[videoId] = new Set();
 				messageLabels[videoId].add(JSON.stringify(valueLabel));
 			}

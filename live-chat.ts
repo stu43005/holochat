@@ -14,7 +14,7 @@ import { YtcNoChrome } from "./ytc-nochrome";
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
 const holoapi = new Client();
-// const ytchat = new MyYouTubeLiveChat(config.get<string>("google_api_key"));
+// const ytcHeadless = new MyYouTubeLiveChat(config.get<string>("google_api_key"));
 const ytcHeadless = new YtcNoChrome();
 const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<string>("discord_token"));
 
@@ -36,7 +36,7 @@ export async function fetchChannel() {
 	if (lives.upcoming) {
 		for (const video of lives.upcoming) {
 			const startTime = moment(video.scheduledDate);
-			const r = startTime.subtract(10, "minute");
+			const r = startTime.subtract(60, "minute");
 			if (t.isSameOrAfter(r)) {
 				now.push(video);
 			}
@@ -45,7 +45,7 @@ export async function fetchChannel() {
 	if (lives.ended) {
 		for (const video of lives.ended) {
 			const endDate = moment(video.endDate);
-			const r = endDate.add(5, "minute");
+			const r = endDate.add(10, "minute");
 			if (t.isSameOrBefore(r)) {
 				now.push(video);
 			}
@@ -98,10 +98,10 @@ async function startChatRecord(videoId: string) {
 
 	messageFilters[videoId] = BloomFilter.create(100000, 0.02);
 
-	// const liveChatId = await ytchat.getLiveChatIdFromVideoId(videoId);
+	// const liveChatId = await ytcHeadless.getLiveChatIdFromVideoId(videoId);
 	// if (!liveChatId) return false;
 
-	// const observe = ytchat.listen(liveChatId, () => {
+	// const observe = ytcHeadless.listen(liveChatId, () => {
 	// 	const live = cache.get<LiveLivestream>(videoId);
 	// 	const viewers = live?.viewers ?? 0;
 	// 	return 120000 - viewers * 2;
@@ -109,7 +109,7 @@ async function startChatRecord(videoId: string) {
 
 	const observe = await ytcHeadless.listen(videoId);
 	observe.subscribe(
-		(chatMessage: YtcMessage) => {
+		(chatMessage: YouTubeLiveChatMessage | YtcMessage) => {
 			const live = cache.get<LiveLivestream>(videoId);
 			if (live) {
 				if (messageFilters[videoId]?.has(chatMessage.id)) {
@@ -195,6 +195,7 @@ async function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessag
 	let content = "";
 	let amountDisplayString = "";
 	let amount = 0;
+	let currency = "";
 
 	switch (message.snippet.type) {
 		case "newSponsorEvent":
@@ -223,6 +224,7 @@ async function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessag
 			const jpyAmount = await currencyToJpyAmount(value.amount, value.currency);
 			// console.debug(amountDisplayString, "convert to", jpyAmount.currency, jpyAmount.amount);
 			amount = jpyAmount.amount;
+			currency = value.currency;
 		}
 	}
 
@@ -234,7 +236,7 @@ async function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessag
 	}
 
 	updateVideoMetrics(live);
-	addMessageMetrics(live, message, marked, amount);
+	addMessageMetrics(live, message, marked, amount, currency);
 }
 
 function postDiscord(live: LiveLivestream, chatMessage: YouTubeLiveChatMessage | YtcMessage, content: string, time: number) {
@@ -287,6 +289,9 @@ function getEmbedColor(message: YouTubeLiveChatMessage | YtcMessage) {
 
 function logChatsCount() {
 	global.setTimeout(() => {
-		console.log(`Current recording chats: ${ytcHeadless.count()}`);
+		const ytc = ytcHeadless as any;
+		if (typeof ytc.count === "function") {
+			console.log(`Current recording chats: ${ytc.count()}`);
+		}
 	}, 10);
 }

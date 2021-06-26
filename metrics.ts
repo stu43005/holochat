@@ -1,4 +1,5 @@
 import { VideoBase } from "@holores/holoapi/dist/types";
+import { Video } from "@stu43005/holodex-api";
 import { BloomFilter } from "bloom-filters";
 import fs from "fs";
 import path from "path";
@@ -131,12 +132,12 @@ const metrics = {
 
 //#region functions
 
-export function getVideoLabel(live: VideoBase): VideoLabel {
-	const cacheKey = getVideoLabelKey(live.youtubeId!);
+export function getVideoLabel(live: Video): VideoLabel {
+	const cacheKey = getVideoLabelKey(live.videoId);
 	return cache.getDefault(cacheKey, () => ({
-		channelId: live.channel.youtubeId,
+		channelId: live.channel.channelId,
 		channelName: live.channel.name,
-		videoId: live.youtubeId!,
+		videoId: live.videoId,
 		title: live.title,
 	}));
 }
@@ -145,29 +146,30 @@ function getVideoLabelKey(videoId: string) {
 	return `metrics_video_label_${videoId}`;
 }
 
-export function initVideoMetrics(live: VideoBase) {
+export function initVideoMetrics(live: Video) {
 	updateVideoMetrics(live);
 }
 
-export function updateVideoMetrics(live: VideoBase) {
+export function updateVideoMetrics(live: Video) {
 	const label = getVideoLabel(live);
-	if (live.viewers) {
-		videoViewers.labels(label).set(live.viewers);
+	if (live.liveViewers) {
+		videoViewers.labels(label).set(live.liveViewers);
 	}
 	else {
 		videoViewers.labels(label).set(0);
 	}
-	const endDate = live.endDate ?? new Date();
-	if (live.startDate) {
-		videoStartTime.labels(label).set(live.startDate.getTime() / 1000);
+	const startDate = live.actualStart ?? live.scheduledStart;
+	const endDate = live.actualEnd ?? new Date();
+	if (startDate) {
+		videoStartTime.labels(label).set(startDate.getTime() / 1000);
 
-		const duration = endDate.getTime() - live.startDate.getTime();
+		const duration = endDate.getTime() - startDate.getTime();
 		if (duration > 0) {
 			videoDuration.labels(label).set(duration / 1000);
 		}
 	}
-	if (live.endDate) {
-		videoEndTime.labels(label).set(live.endDate.getTime() / 1000);
+	if (live.actualEnd) {
+		videoEndTime.labels(label).set(live.actualEnd.getTime() / 1000);
 	}
 	videoUpTime.labels(label).set(endDate.getTime() / 1000);
 }
@@ -201,7 +203,7 @@ function getMessageAuthorType(message: YouTubeLiveChatMessage | YtcMessage, mark
 	return authorType;
 }
 
-export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessage | YtcMessage, marked = false, amount = 0, currency = "") {
+export function addMessageMetrics(live: Video, message: YouTubeLiveChatMessage | YtcMessage, marked = false, amount = 0, currency = "") {
 	const type = getMessageType(message);
 	const authorType = getMessageAuthorType(message, marked);
 
@@ -211,7 +213,7 @@ export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessa
 		authorType,
 	};
 
-	const videoId = live.youtubeId!;
+	const videoId = live.videoId;
 	if (!messageLabels[videoId]) messageLabels[videoId] = new Set();
 	messageLabels[videoId].add(JSON.stringify(label));
 
@@ -262,14 +264,14 @@ export function addMessageMetrics(live: VideoBase, message: YouTubeLiveChatMessa
 	}
 }
 
-export function guessMessageAuthorType(live: VideoBase, message: YouTubeLiveChatMessage | YtcMessage) {
+export function guessMessageAuthorType(live: Video, message: YouTubeLiveChatMessage | YtcMessage) {
 	const authorType = getMessageAuthorType(message);
 	if (authorType !== MessageAuthorType.Other) return;
 
 	const type = getMessageType(message);
 	if (type !== MessageType.SuperChat && type !== MessageType.SuperSticker) return;
 
-	const videoId = live.youtubeId!;
+	const videoId = live.videoId;
 	const textMessage = userFilters[videoId]?.[MessageType.TextMessage];
 	if (!textMessage) return;
 
@@ -280,9 +282,9 @@ export function guessMessageAuthorType(live: VideoBase, message: YouTubeLiveChat
 	else if (textMessage[MessageAuthorType.Verified]?.has(channelId)) message.authorDetails.isVerified = true;
 }
 
-export function removeVideoMetrics(live: VideoBase) {
+export function removeVideoMetrics(live: Video) {
 	const label = getVideoLabel(live);
-	const videoId = live.youtubeId!;
+	const videoId = live.videoId;
 	if (messageLabels[videoId]) {
 		messageLabels[videoId].forEach(l => {
 			const ll = JSON.parse(l);
@@ -312,8 +314,8 @@ export function removeVideoMetrics(live: VideoBase) {
 const removeMetricsTimer: Record<string, NodeJS.Timeout> = {};
 const removeMetricsTimerMs = 10 * 60 * 1000;
 
-export function delayRemoveVideoMetrics(live: VideoBase) {
-	const videoId = live.youtubeId!;
+export function delayRemoveVideoMetrics(live: Video) {
+	const videoId = live.videoId;
 	if (!removeMetricsTimer[videoId]) {
 		removeMetricsTimer[videoId] = global.setTimeout(() => {
 			removeVideoMetrics(live);
@@ -383,7 +385,7 @@ function readJsonFile(filepath: string) {
 	}
 }
 
-export function restoreAllMetrics(now: VideoBase[]) {
+export function restoreAllMetrics(now: Video[]) {
 	const backup = readJsonFile(backupPath);
 	if (backup) {
 		for (const live of now) {
@@ -406,7 +408,7 @@ export function restoreAllMetrics(now: VideoBase[]) {
 			return value;
 		});
 		for (const live of now) {
-			const videoId = live.youtubeId!;
+			const videoId = live.videoId;
 			if (userFiltersBackup2[videoId]) {
 				// convert old backup
 				if (userFiltersBackup2[videoId][MessageType.TextMessage] instanceof BloomFilter) {
@@ -421,8 +423,8 @@ export function restoreAllMetrics(now: VideoBase[]) {
 	}
 }
 
-function restoreVideoMetrics(backup: any[], live: VideoBase) {
-	const videoId = live.youtubeId!;
+function restoreVideoMetrics(backup: any[], live: Video) {
+	const videoId = live.videoId;
 	const keys: (keyof typeof metrics)[] = Object.keys(metrics) as any;
 	for (const key of keys) {
 		const metric = metrics[key];

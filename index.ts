@@ -25,7 +25,7 @@ global.setInterval(async () => {
 	catch (error) {
 		console.error("fetchChannel error");
 	}
-}, 60 * 1000);
+}, 3 * 60 * 1000);
 
 // init express server
 const app = express();

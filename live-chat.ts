@@ -1,5 +1,4 @@
-import Client from "@holores/holoapi";
-import { LiveLivestream, VideoBase } from "@holores/holoapi/dist/types";
+import { HolodexApiClient, Video } from "@stu43005/holodex-api";
 import { BloomFilter } from "bloom-filters";
 import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
@@ -13,7 +12,9 @@ import { YtcNoChrome } from "./ytc-nochrome";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
-const holoapi = new Client();
+const holoapi = new HolodexApiClient({
+	apiKey: config.get<string>("holodex_apikey"),
+});
 // const ytcHeadless = new MyYouTubeLiveChat(config.get<string>("google_api_key"));
 const ytcHeadless = new YtcNoChrome();
 const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<string>("discord_token"));
@@ -28,38 +29,31 @@ function delay(sec: number) {
 
 export async function fetchChannel() {
 	const t = moment();
-	const lives = await holoapi.videos.getLivestreams("", 1, 1);
-	let now: VideoBase[] = [];
-	if (lives.live) {
-		now = now.concat(lives.live);
-	}
-	if (lives.upcoming) {
-		for (const video of lives.upcoming) {
-			const startTime = moment(video.scheduledDate);
-			const r = startTime.subtract(60, "minute");
-			if (t.isSameOrAfter(r)) {
-				now.push(video);
-			}
-		}
-	}
-	if (lives.ended) {
-		for (const video of lives.ended) {
-			const endDate = moment(video.endDate);
-			const r = endDate.add(10, "minute");
-			if (t.isSameOrBefore(r)) {
-				now.push(video);
-			}
-		}
-	}
+	const lives = await holoapi.getLiveVideos({
+		org: "Hololive",
+	});
+	// let now: VideoBase[] = [];
+	// if (lives.live) {
+	// 	now = now.concat(lives.live);
+	// }
+	// if (lives.upcoming) {
+	// 	for (const video of lives.upcoming) {
+	// 		const startTime = moment(video.scheduledDate);
+	// 		const r = startTime.subtract(60, "minute");
+	// 		if (t.isSameOrAfter(r)) {
+	// 			now.push(video);
+	// 		}
+	// 	}
+	// }
 
 	if (!inited) {
 		inited = true;
-		restoreAllMetrics(now);
+		restoreAllMetrics(lives);
 	}
 
 	const lived = cache.get<string[]>(KEY_YOUTUBE_LIVE_IDS) ?? [];
 	for (const videoId of lived) {
-		const live = now.find(l => l.youtubeId === videoId);
+		const live = lives.find(l => l.videoId === videoId);
 		if (live) {
 			deleteStopRecordTimer(videoId);
 			continue;
@@ -68,8 +62,8 @@ export async function fetchChannel() {
 		delayStopRecord(videoId);
 	}
 
-	for (const live of now) {
-		const videoId = live.youtubeId;
+	for (const live of lives) {
+		const videoId = live.videoId;
 		if (!videoId) continue;
 		// if (channels.length && !channels.includes(live.channel.youtubeId)) continue; // Not in channel list
 
@@ -93,7 +87,7 @@ async function startChatRecord(videoId: string) {
 
 	deleteStopRecordTimer(videoId);
 	deleteRemoveMetricsTimer(videoId);
-	const live = cache.get<LiveLivestream>(videoId);
+	const live = cache.get<Video>(videoId);
 	if (live) initVideoMetrics(live);
 
 	messageFilters[videoId] = BloomFilter.create(100000, 0.02);
@@ -110,7 +104,7 @@ async function startChatRecord(videoId: string) {
 	const observe = await ytcHeadless.listen(videoId);
 	observe.subscribe(
 		(chatMessage: YouTubeLiveChatMessage | YtcMessage) => {
-			const live = cache.get<LiveLivestream>(videoId);
+			const live = cache.get<Video>(videoId);
 			if (live) {
 				if (messageFilters[videoId]?.has(chatMessage.id)) {
 					counterFilterTestFailed.labels(getVideoLabel(live)).inc(1);
@@ -142,7 +136,7 @@ async function startChatRecord(videoId: string) {
 function stopChatRecord(videoId: string, onError = false) {
 	cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
 
-	const live = cache.get<LiveLivestream>(videoId);
+	const live = cache.get<Video>(videoId);
 	if (live) {
 		delayRemoveVideoMetrics(live);
 	}
@@ -156,7 +150,7 @@ function stopChatRecord(videoId: string, onError = false) {
 //#region delay stop
 
 const stopRecordTimer: Record<string, NodeJS.Timeout> = {};
-const stopRecordTimerMs = 5 * 60 * 1000;
+const stopRecordTimerMs = 10 * 60 * 1000;
 
 export function delayStopRecord(videoId: string) {
 	if (!stopRecordTimer[videoId]) {
@@ -177,8 +171,8 @@ export function deleteStopRecordTimer(videoId: string) {
 
 //#endregion
 
-async function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessage | YtcMessage) {
-	const videoId = live.youtubeId;
+async function parseMessage(live: Video, message: YouTubeLiveChatMessage | YtcMessage) {
+	const videoId = live.videoId;
 	const userName = message.authorDetails.displayName;
 	const userDetail: string[] = [
 		...(message.authorDetails.isChatOwner ? ["Owner"] : []),
@@ -188,8 +182,8 @@ async function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessag
 	];
 	const marked = !!(channels.length && channels.includes(message.authorDetails.channelId));
 	const publishedAt = new Date(message.snippet.publishedAt);
-	const isBeforeStream = !live.startDate || live.startDate > publishedAt;
-	const time = isBeforeStream ? 0 : Math.floor((publishedAt.getTime() - live.startDate.getTime()) / 1000);
+	const isBeforeStream = !live.actualStart || live.actualStart > publishedAt;
+	const time = isBeforeStream ? 0 : Math.floor((publishedAt.getTime() - live.actualStart!.getTime()) / 1000);
 	const timeCode = secondsToHms(time);
 
 	let content = "";
@@ -239,14 +233,14 @@ async function parseMessage(live: LiveLivestream, message: YouTubeLiveChatMessag
 	addMessageMetrics(live, message, marked, amount, currency);
 }
 
-function postDiscord(live: LiveLivestream, chatMessage: YouTubeLiveChatMessage | YtcMessage, content: string, time: number) {
+function postDiscord(live: Video, chatMessage: YouTubeLiveChatMessage | YtcMessage, content: string, time: number) {
 	const message = new MessageEmbed();
 	message.setAuthor(chatMessage.authorDetails.displayName, chatMessage.authorDetails.profileImageUrl, chatMessage.authorDetails.channelUrl);
 	message.setTitle(`To ${live.channel.name} • At ${secondsToHms(time)}`);
-	message.setURL(`https://youtu.be/${live.youtubeId}?t=${time}`);
-	message.setThumbnail(live.thumbnail ?? `https://i.ytimg.com/vi/${live.youtubeId}/mqdefault.jpg`);
+	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
+	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
 	message.setDescription(content);
-	message.setFooter(live.title, live.channel.photo);
+	message.setFooter(live.title, live.channel.avatarUrl);
 	message.setTimestamp(new Date(chatMessage.snippet.publishedAt));
 	const color = getEmbedColor(chatMessage);
 	if (color) message.setColor(color);

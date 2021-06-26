@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@holores/holoapi": "^1.0.5",
+    "@stu43005/holodex-api": "^1.0.3",
     "bloom-filters": "^1.3.2",
     "cheerio": "^1.0.0-rc.5",
     "config": "^3.3.3",

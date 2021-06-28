@@ -1,4 +1,4 @@
-import { HolodexApiClient, Video } from "@stu43005/holodex-api";
+import { ExtraData, HolodexApiClient, Video, VideoStatus, VideoType } from "@stu43005/holodex-api";
 import { BloomFilter } from "bloom-filters";
 import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
@@ -32,19 +32,21 @@ export async function fetchChannel() {
 	const lives = await holoapi.getLiveVideos({
 		org: "Hololive",
 	});
-	// let now: VideoBase[] = [];
-	// if (lives.live) {
-	// 	now = now.concat(lives.live);
-	// }
-	// if (lives.upcoming) {
-	// 	for (const video of lives.upcoming) {
-	// 		const startTime = moment(video.scheduledDate);
-	// 		const r = startTime.subtract(60, "minute");
-	// 		if (t.isSameOrAfter(r)) {
-	// 			now.push(video);
-	// 		}
-	// 	}
-	// }
+	const ended = await holoapi.getVideos({
+		org: "Hololive",
+		status: VideoStatus.Past,
+		type: VideoType.Stream,
+		include: [ExtraData.LiveInfo],
+	});
+	for (const video of ended) {
+		if (video.actualEnd) {
+			const actualEnd = moment(video.actualEnd);
+			const r = actualEnd.add(10, "minute");
+			if (t.isSameOrBefore(r)) {
+				lives.push(video);
+			}
+		}
+	}
 
 	if (!inited) {
 		inited = true;

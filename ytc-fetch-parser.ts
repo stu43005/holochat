@@ -165,22 +165,22 @@ export const fetchParser = (json: any) => {
 						result.push(msg);
 					}
 					catch (e) {
-						console.error("[ytc] Failed retrieving message informations:", json);
-						console.error(chatMessage);
+						console.error("[ytc] Failed retrieving message informations:", JSON.stringify(json, null, 2));
+						console.error(JSON.stringify(chatMessage, null, 2));
 						console.error(e);
 					}
 				}
 				else {
-					// console.log('[ytc] Unsupported chat action', action);
+					// console.log('[ytc] Unsupported chat action', JSON.stringify(action, null, 2));
 				}
 			}
 		}
 		else {
-			// console.log('[ytc] Non interesting actions', json);
+			// console.log('[ytc] Non interesting actions', JSON.stringify(json, null, 2));
 		}
 	}
 	catch (e) {
-		console.error("[ytc] Fetch interceptor failed parsing:", json);
+		console.error("[ytc] Fetch interceptor failed parsing:", JSON.stringify(json, null, 2));
 		console.error(e);
 	}
 	return result;

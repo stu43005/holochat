@@ -18,8 +18,10 @@ const defaultFetchHeader: { [key: string]: string } = {
 	"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36"
 };
 
+const getLiveChatPageUrl = (videoId: string) => `https://www.youtube.com/live_chat?is_popout=1&v=${videoId}`;
+
 async function getLiveChatPage(videoId: string) {
-	const res = await fetch(`https://www.youtube.com/live_chat?is_popout=1&v=${videoId}`, {
+	const res = await fetch(getLiveChatPageUrl(videoId), {
 		headers: _.merge({}, defaultFetchHeader, {
 			"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
 			"sec-fetch-dest": "document",
@@ -34,29 +36,32 @@ async function getLiveChatPage(videoId: string) {
 	return html;
 }
 
+const _YT_INITIAL_DATA_RE = /(?:window\s*\[\s*["\']ytInitialData["\']\s*\]|ytInitialData)\s*=\s*({.+?})\s*;/;
+
 function parseLiveChatPage(videoId: string, html: string): GetLiveChatData | string | undefined {
 	const $ = cheerio.load(html);
 	const ytcfgScript = $("script").filter((index, scriptEl) => cheerio.html(scriptEl).includes("INNERTUBE_CONTEXT"));
-	const ytcfgText = ytcfgScript.html()?.match(/ytcfg\.set\((.*)\);/)?.[1];
+	const ytcfgText = ytcfgScript.html()?.match(/ytcfg\.set\s*\(\s*({.+?})\s*\)\s*;/)?.[1];
 	const ytInitialDataScript = $("script").filter((index, scriptEl) => cheerio.html(scriptEl).includes("ytInitialData"));
-	const ytInitialDataText = ytInitialDataScript.html()?.match(/window\["ytInitialData"\] = (.*);/)?.[1];
+	const ytInitialDataText = ytInitialDataScript.html()?.match(_YT_INITIAL_DATA_RE)?.[1];
 
 	if (ytcfgText && ytInitialDataText) {
 		const ytcfg: Ytcfg = JSON.parse(ytcfgText);
 		const ytInitialData = JSON.parse(ytInitialDataText);
 
-		const apiKey = ytcfg.INNERTUBE_API_KEY;
-		const clientName = ytcfg.INNERTUBE_CONTEXT_CLIENT_NAME;
-		const clientVersion = ytcfg.INNERTUBE_CONTEXT_CLIENT_VERSION;
-		const visitorData = ytcfg.VISITOR_DATA;
-		const continuations0 = ytInitialData?.contents?.liveChatRenderer?.continuations?.[0];
-		const clickTrackingParams = continuations0?.timedContinuationData?.clickTrackingParams ?? continuations0?.invalidationContinuationData?.clickTrackingParams;
-		const continuation = continuations0?.timedContinuationData?.continuation ?? continuations0?.invalidationContinuationData?.continuation;
-		const timeoutMs = continuations0?.timedContinuationData?.timeoutMs ?? continuations0?.invalidationContinuationData?.timeoutMs;
 		const firstMessage = ytInitialData?.contents?.messageRenderer?.text?.runs?.[0]?.text;
 
+		const apiKey = ytcfg.INNERTUBE_API_KEY;
+		const innertubeContext = ytcfg.INNERTUBE_CONTEXT;
+		if (!apiKey || !innertubeContext) return firstMessage;
+
+		const clientName = ytcfg.INNERTUBE_CONTEXT_CLIENT_NAME;
+		const clientVersion = ytcfg.INNERTUBE_CONTEXT_CLIENT_VERSION ?? ytcfg.INNERTUBE_CLIENT_VERSION;
+		const visitorData = ytcfg.VISITOR_DATA ?? innertubeContext.client.visitorData;
+		const liveChatRenderer = ytInitialData?.contents?.liveChatRenderer;
+
 		const body: GetLiveChatBody = _.merge({
-			context: ytcfg.INNERTUBE_CONTEXT
+			context: innertubeContext
 		}, {
 			context: {
 				client: {
@@ -84,25 +89,23 @@ function parseLiveChatPage(videoId: string, html: string): GetLiveChatData | str
 					params: []
 				}
 			},
-			continuation,
+			continuation: "",
 			webClientInfo: {
 				isDocumentHidden: false
 			}
 		});
 
-		if (apiKey && continuation) {
-			return {
-				videoId,
-				apiKey,
-				clientName: `${clientName}`,
-				clientVersion,
-				visitorData,
-				body,
-				timeoutMs,
-				retry: 0,
-			};
-		}
-		return firstMessage;
+		const data: GetLiveChatData = {
+			videoId,
+			apiKey,
+			clientName: `${clientName}`,
+			clientVersion,
+			visitorData,
+			body,
+			timeoutMs: 0,
+			retry: 0,
+		};
+		return setLiveChatApiData(data, liveChatRenderer) ?? firstMessage;
 	}
 }
 
@@ -110,6 +113,7 @@ async function getLiveChatApi(data: GetLiveChatData) {
 	const res = await fetch(`https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?key=${data.apiKey}`, {
 		headers: _.merge({}, defaultFetchHeader, {
 			"content-type": "application/json",
+			"referer": getLiveChatPageUrl(data.videoId),
 			"x-goog-visitor-id": data.visitorData,
 			"x-youtube-client-name": data.clientName,
 			"x-youtube-client-version": data.clientVersion,
@@ -121,12 +125,43 @@ async function getLiveChatApi(data: GetLiveChatData) {
 	return json;
 }
 
-function setLiveChatApiData(data: GetLiveChatData, json: any) {
-	const continuations0 = json?.continuationContents?.liveChatContinuation?.continuations?.[0];
-	data.body.continuation = continuations0?.timedContinuationData?.continuation ?? continuations0?.invalidationContinuationData?.continuation;
-	data.timeoutMs = continuations0?.timedContinuationData?.timeoutMs ?? continuations0?.invalidationContinuationData?.timeoutMs;
-	if (data.body.continuation) {
-		return data;
+function parseLiveChatApi(data: GetLiveChatData, json: any) {
+	const liveChatContinuation = json?.continuationContents?.liveChatContinuation;
+	return setLiveChatApiData(data, liveChatContinuation);
+}
+
+const _KNOWN_SEEK_CONTINUATIONS = [
+	"playerSeekContinuationData"
+];
+
+const _KNOWN_CHAT_CONTINUATIONS = [
+	"invalidationContinuationData", "timedContinuationData",
+	"liveChatReplayContinuationData", "reloadContinuationData"
+];
+
+function setLiveChatApiData(data: GetLiveChatData, liveChatContinuation: any) {
+	let noContinuation = true;
+	if (liveChatContinuation?.continuations) {
+		for (const cont of liveChatContinuation?.continuations) {
+			const continuationKey = Object.keys(cont)[0];
+			const continuationData = cont[continuationKey];
+
+			if (_KNOWN_CHAT_CONTINUATIONS.includes(continuationKey)) {
+				data.body.continuation = continuationData?.continuation;
+				data.body.context.clickTracking.clickTrackingParams = continuationData?.clickTrackingParams ?? continuationData?.trackingParams;
+				noContinuation = false;
+			}
+			else if (_KNOWN_SEEK_CONTINUATIONS.includes(continuationKey)) {
+				// ignore these continuations
+			}
+			else {
+				console.log(`[ytc] Unknown continuation: ${continuationKey};`, JSON.stringify(cont, null, 2));
+			}
+			data.timeoutMs = continuationData?.timeoutMs ?? 0;
+		}
+		if (!noContinuation && data.body.continuation) {
+			return data;
+		}
 	}
 }
 
@@ -145,7 +180,7 @@ export class YtcNoChrome {
 				global.setTimeout(async () => {
 					try {
 						const result = await getLiveChatApi(data);
-						const nextData = setLiveChatApiData(data, result);
+						const nextData = parseLiveChatApi(data, result);
 						if (this.subjectCache[videoId]) {
 							const messages = fetchParser(result);
 							for (const msg of messages) {
@@ -170,7 +205,7 @@ export class YtcNoChrome {
 							this.stop(videoId);
 						}
 					}
-				}, Math.min(data.timeoutMs, 60000));
+				}, Math.min(data.timeoutMs, 8000));
 			};
 
 			global.setTimeout(async () => {
@@ -210,7 +245,7 @@ async function test() {
 		global.setTimeout(async () => {
 			try {
 				const result = await getLiveChatApi(data);
-				const nextData = setLiveChatApiData(data, result);
+				const nextData = parseLiveChatApi(data, result);
 				const messages = fetchParser(result);
 				for (const msg of messages) {
 					// console.log(msg);
@@ -229,7 +264,7 @@ async function test() {
 		}, data.timeoutMs);
 	};
 
-	const videoId = "AK_DxiTXUts";
+	const videoId = "WTU3TIZRUCM";
 	try {
 		const html = await getLiveChatPage(videoId);
 		const getLiveChatData = parseLiveChatPage(videoId, html);

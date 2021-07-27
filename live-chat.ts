@@ -227,7 +227,8 @@ async function parseMessage(live: Video, message: YouTubeLiveChatMessage | YtcMe
 	if (marked || message.authorDetails.isChatOwner || message.authorDetails.isChatModerator) {
 		console.log(`[${videoId}][${timeCode}] ${userName}${userDetail.length ? `(${userDetail.join(",")})` : ""}: ${content}`);
 	}
-	if (marked || /^[[(]?(?:cht?|cn|tw|zh|中(?:譯|文)?(?:CHT)?)[\|\]): -]/i.test(content) || message.snippet.type === "superChatEvent") {
+	// if (marked || /^[[(]?(?:cht?|cn|tw|zh|中(?:譯|文)?(?:CHT)?)[\|\]): -]/i.test(content) || message.snippet.type === "superChatEvent") {
+	if (marked) {
 		postDiscord(live, message, content, time);
 	}
 

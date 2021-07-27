@@ -1,7 +1,6 @@
-import { VideoBase } from "@holores/holoapi/dist/types";
-import { Video } from "@stu43005/holodex-api";
 import { BloomFilter } from "bloom-filters";
 import fs from "fs";
+import { Video } from "holodex.js";
 import path from "path";
 import { Counter, Gauge, register } from "prom-client";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";

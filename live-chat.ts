@@ -1,7 +1,7 @@
-import { ExtraData, HolodexApiClient, Video, VideoStatus, VideoType } from "@stu43005/holodex-api";
 import { BloomFilter } from "bloom-filters";
 import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
+import { ExtraData, HolodexApiClient, Video, VideoStatus, VideoType } from "holodex.js";
 import moment from "moment";
 import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
@@ -227,7 +227,7 @@ async function parseMessage(live: Video, message: YouTubeLiveChatMessage | YtcMe
 	if (marked || message.authorDetails.isChatOwner || message.authorDetails.isChatModerator) {
 		console.log(`[${videoId}][${timeCode}] ${userName}${userDetail.length ? `(${userDetail.join(",")})` : ""}: ${content}`);
 	}
-	if (marked) {
+	if (marked || /^[[(]?(?:cht?|cn|tw|zh|中(?:譯|文)?(?:CHT)?)[\|\]): -]/i.test(content) || message.snippet.type === "superChatEvent") {
 		postDiscord(live, message, content, time);
 	}
 

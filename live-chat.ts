@@ -18,6 +18,7 @@ const holoapi = new HolodexApiClient({
 // const ytcHeadless = new MyYouTubeLiveChat(config.get<string>("google_api_key"));
 const ytcHeadless = new YtcNoChrome();
 const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<string>("discord_token"));
+const webhook2 = config.has("discord_id_full") ? new WebhookClient(config.get<string>("discord_id_full"), config.get<string>("discord_token_full")) : null;
 
 const channels = config.has("channels") ? config.get<string[]>("channels") : [];
 const messageFilters: Record<string, BloomFilter> = {};
@@ -227,16 +228,20 @@ async function parseMessage(live: Video, message: YouTubeLiveChatMessage | YtcMe
 	if (marked || message.authorDetails.isChatOwner || message.authorDetails.isChatModerator) {
 		console.log(`[${videoId}][${timeCode}] ${userName}${userDetail.length ? `(${userDetail.join(",")})` : ""}: ${content}`);
 	}
-	// if (marked || /^[[(]?(?:cht?|cn|tw|zh|中(?:譯|文)?(?:CHT)?)[\|\]): -]/i.test(content) || message.snippet.type === "superChatEvent") {
+	if (marked || /^[[(]?(?:cht?|cn|tw|zh|中(?:譯|文)?(?:CHT)?)[\|\]): -]/i.test(content) || message.snippet.type === "superChatEvent") {
+		if (webhook2) {
+			postDiscord(webhook2, live, message, content, time);
+		}
+	}
 	if (marked) {
-		postDiscord(live, message, content, time);
+		postDiscord(webhook, live, message, content, time);
 	}
 
 	updateVideoMetrics(live);
 	addMessageMetrics(live, message, marked, amount, currency);
 }
 
-function postDiscord(live: Video, chatMessage: YouTubeLiveChatMessage | YtcMessage, content: string, time: number) {
+function postDiscord(webhook: WebhookClient, live: Video, chatMessage: YouTubeLiveChatMessage | YtcMessage, content: string, time: number) {
 	const message = new MessageEmbed();
 	message.setAuthor(chatMessage.authorDetails.displayName, chatMessage.authorDetails.profileImageUrl, chatMessage.authorDetails.channelUrl);
 	message.setTitle(`To ${live.channel.name} • At ${secondsToHms(time)}`);

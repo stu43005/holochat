@@ -26,7 +26,10 @@ const toMessage = (message: LiveChatSimpleString) => {
 	if (!message?.runs) return "";
 	return message.runs.reduce((acc, msg) => {
 		if (msg.emoji) {
-			return acc + msg.emoji.shortcuts.reverse()[0];
+			if (msg.emoji.shortcuts) {
+				return acc + msg.emoji.shortcuts.reverse()[0];
+			}
+			return acc + msg.emoji.emojiId;
 		}
 		if (msg.text) {
 			if (msg.navigationEndpoint) {

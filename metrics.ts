@@ -64,11 +64,11 @@ const userFilters: Record<string, {
 		[MessageAuthorType.Owner]?: Set<string>;
 		[MessageAuthorType.Marked]?: Set<string>;
 		[MessageAuthorType.Moderator]?: Set<string>;
-		[MessageAuthorType.Sponsor]?: BloomFilter;
+		[MessageAuthorType.Sponsor]?: Set<string>;
 		[MessageAuthorType.Verified]?: Set<string>;
-		[MessageAuthorType.Other]?: BloomFilter;
+		[MessageAuthorType.Other]?: Set<string>;
 	};
-	[MessageType.SuperChat]?: BloomFilter;
+	[MessageType.SuperChat]?: Set<string>;
 }> = {};
 
 const gaugeSuperChatValue = new Gauge({
@@ -230,7 +230,8 @@ export function addMessageMetrics(live: Video, message: YouTubeLiveChatMessage |
 	if (!userFilters[videoId]) userFilters[videoId] = {};
 	if (type === MessageType.SuperChat) {
 		if (!userFilters[videoId][type]) {
-			userFilters[videoId][type] = BloomFilter.create(2000, 0.02);
+			// userFilters[videoId][type] = BloomFilter.create(2000, 0.02);
+			userFilters[videoId][type] = new Set();
 		}
 		if (!userFilters[videoId][type]?.has(message.authorDetails.channelId)) {
 			counterReceiveMessageUsers.labels(label).inc(1);
@@ -242,18 +243,15 @@ export function addMessageMetrics(live: Video, message: YouTubeLiveChatMessage |
 		const textMessage = userFilters[videoId][type]!;
 		if (!textMessage[authorType]) {
 			switch (authorType) {
-				case MessageAuthorType.Owner:
-				case MessageAuthorType.Marked:
-				case MessageAuthorType.Moderator:
-				case MessageAuthorType.Verified:
+				default:
 					textMessage[authorType] = new Set();
 					break;
-				case MessageAuthorType.Sponsor:
-					textMessage[authorType] = BloomFilter.create(5000, 0.02);
-					break;
-				case MessageAuthorType.Other:
-					textMessage[authorType] = BloomFilter.create(15000, 0.02);
-					break;
+				// case MessageAuthorType.Sponsor:
+				// 	textMessage[authorType] = BloomFilter.create(5000, 0.02);
+				// 	break;
+				// case MessageAuthorType.Other:
+				// 	textMessage[authorType] = BloomFilter.create(15000, 0.02);
+				// 	break;
 			}
 		}
 		if (!Object.values(textMessage).some(set => set?.has(message.authorDetails.channelId))) {

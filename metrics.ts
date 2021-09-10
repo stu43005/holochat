@@ -1,12 +1,12 @@
 import { BloomFilter } from "bloom-filters";
 import fs from "fs";
-import { Video } from "holodex.js";
+import type { Video } from "holodex.js";
 import path from "path";
 import { Counter, Gauge, register } from "prom-client";
-import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
+import type { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { bloomFilterFromJSON } from "./bloom-filter-extension";
 import { cache } from "./cache";
-import { YtcMessage } from "./ytc-fetch-parser";
+import type { YtcMessage } from "./ytc-fetch-parser";
 
 //#region types
 
@@ -336,7 +336,7 @@ const backupPath = path.join(__dirname, "backup/backup_metrics.json");
 const backupUserFiltersPath = path.join(__dirname, "backup/backup_user_filters.json");
 let receivedSignal = false;
 
-async function handleExit(signal: NodeJS.Signals) {
+export async function handleExit(signal?: NodeJS.Signals, exitCode = 0, saveUserFilter = true) {
 	console.log(`Received ${signal}`);
 	if (!receivedSignal) {
 		receivedSignal = true;
@@ -350,26 +350,30 @@ async function handleExit(signal: NodeJS.Signals) {
 		}
 		fs.writeFileSync(backupPath, JSON.stringify(json));
 
-		const userFiltersJson = JSON.stringify(userFilters, (key, value) => {
-			if (value instanceof BloomFilter) {
-				return value.saveAsJSON();
-			}
-			if (value instanceof Set) {
-				return {
-					type: "Set",
-					data: [...value],
-				};
-			}
-			return value;
-		});
-		fs.writeFileSync(backupUserFiltersPath, userFiltersJson);
+		if (saveUserFilter) {
+			const userFiltersJson = JSON.stringify(userFilters, (key, value) => {
+				if (value instanceof BloomFilter) {
+					return value.saveAsJSON();
+				}
+				if (value instanceof Set) {
+					return {
+						type: "Set",
+						data: [...value],
+					};
+				}
+				return value;
+			});
+			fs.writeFileSync(backupUserFiltersPath, userFiltersJson);
+		}
 	}
-	process.exit(0);
+	if (exitCode >= 0) {
+		process.exit(exitCode);
+	}
 };
 
-process.on("SIGINT", handleExit);
-process.on("SIGTERM", handleExit);
-process.on("SIGUSR2", handleExit); // for nodemon
+process.on("SIGINT", (signal) => handleExit(signal));
+process.on("SIGTERM", (signal) => handleExit(signal));
+process.on("SIGUSR2", (signal) => handleExit(signal)); // for nodemon
 
 function readJsonFile(filepath: string) {
 	try {

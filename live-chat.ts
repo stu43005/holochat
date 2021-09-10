@@ -3,11 +3,11 @@ import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
 import { ExtraData, HolodexApiClient, Video, VideoStatus, VideoType } from "holodex.js";
 import moment from "moment";
-import { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
+import type { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { cache } from "./cache";
 import { addMessageMetrics, counterFilterTestFailed, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, getVideoLabel, guessMessageAuthorType, initVideoMetrics, restoreAllMetrics, updateVideoMetrics } from "./metrics";
 import { currencyToJpyAmount, parseAmountDisplayString, secondsToHms } from "./utils";
-import { YtcMessage } from "./ytc-fetch-parser";
+import type { YtcMessage } from "./ytc-fetch-parser";
 import { YtcNoChrome } from "./ytc-nochrome";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";

@@ -1,9 +1,11 @@
 import cheerio from "cheerio";
+import { exec } from "child_process";
 import _ from "lodash";
 import fetch, { FetchError } from "node-fetch";
 import { Subject } from "rxjs";
+import { handleExit } from "./metrics";
 import { fetchParser, YtcMessage } from "./ytc-fetch-parser";
-import { GetLiveChatBody, GetLiveChatData, Ytcfg } from "./ytc-nochrome.d";
+import type { GetLiveChatBody, GetLiveChatData, Ytcfg } from "./ytc-nochrome.d";
 
 const defaultFetchHeader: { [key: string]: string } = {
 	"accept": "*/*",
@@ -165,6 +167,8 @@ function setLiveChatApiData(data: GetLiveChatData, liveChatContinuation: any) {
 	}
 }
 
+let globalRetryCount = 0;
+
 export class YtcNoChrome {
 	private subjectCache: { [index: string]: Subject<YtcMessage> } = {};
 
@@ -188,6 +192,7 @@ export class YtcNoChrome {
 							}
 							if (nextData) {
 								nextData.retry = 0;
+								globalRetryCount = 0;
 								nextFetchLoop(nextData);
 							}
 							else {
@@ -198,7 +203,17 @@ export class YtcNoChrome {
 					catch (error) {
 						if (error instanceof FetchError && data.retry < 5) {
 							data.retry++;
+							globalRetryCount++;
 							nextFetchLoop(data);
+							if (globalRetryCount > 100) {
+								console.log("[Fatal error] globalRetryCount > 100");
+								await handleExit("SIGUSR1", -1, false);
+								console.log("[System] rebooting system");
+								exec("shutdown -r now", (error, stdout, stderr) => {
+									console.log(stdout);
+								});
+								process.exit(1);
+							}
 						}
 						else {
 							this.subjectCache[videoId]?.error(error);

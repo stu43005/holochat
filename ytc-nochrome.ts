@@ -207,12 +207,10 @@ export class YtcNoChrome {
 							nextFetchLoop(data);
 							if (globalRetryCount > 100) {
 								console.log("[Fatal error] globalRetryCount > 100");
-								await handleExit("SIGUSR1", -1, false);
-								console.log("[System] rebooting system");
-								exec("shutdown -r now", (error, stdout, stderr) => {
+								exec("shutdown -r +2", (error, stdout, stderr) => {
 									console.log(stdout);
 								});
-								process.exit(1);
+								await handleExit("SIGUSR1", 1);
 							}
 						}
 						else {

@@ -205,7 +205,7 @@ masterchatManager.addListener("actions", (metadata, actions) => {
 masterchatManager.addListener("end", (metadata, reason) => {
 	if (!reason) {
 		const live = cache.get<Video>(metadata.videoId);
-		if (live) {
+		if (live && !live.actualEnd) {
 			updateVideoEnding(live, new Date());
 		}
 	}
@@ -405,7 +405,7 @@ async function writeDebugJson(live: Video, name: string, obj: any) {
 	const json = JSON.stringify(obj, null, 2);
 	const outPath = `debug/${live.videoId}-${name}.json`;
 	try {
-		await fs.mkdir(path.dirname(outPath));
+		await fs.mkdir(path.dirname(outPath)).catch(e => {});
 		await fs.writeFile(outPath, json);
 	}
 	catch (e) {

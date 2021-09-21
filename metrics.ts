@@ -3,10 +3,9 @@ import fs from "fs";
 import type { Video } from "holodex.js";
 import path from "path";
 import { Counter, Gauge, register } from "prom-client";
-import type { YouTubeLiveChatMessage } from "youtube-live-chat-ts";
 import { bloomFilterFromJSON } from "./bloom-filter-extension";
 import { cache } from "./cache";
-import type { YtcMessage } from "./ytc-fetch-parser";
+import { CustomChatItem } from "./masterchat-parser";
 
 //#region types
 
@@ -71,9 +70,15 @@ const userFilters: Record<string, {
 	[MessageType.SuperChat]?: Set<string>;
 }> = {};
 
-const gaugeSuperChatValue = new Gauge({
+const gaugeSuperChatJpyValue = new Gauge({
 	name: "holochat_super_chat_value",
-	help: "Sum of super chat value",
+	help: "Sum of super chat value in jpy",
+	labelNames: [...videoLabels, "type", "authorType", "currency"],
+});
+
+const gaugeSuperChatValue = new Gauge({
+	name: "holochat_super_chat_value_origin",
+	help: "Sum of super chat value in origin currency",
 	labelNames: [...videoLabels, "type", "authorType", "currency"],
 });
 
@@ -118,7 +123,8 @@ export const counterFilterTestFailed = new Counter({
 const metrics = {
 	holochat_receive_messages: counterReceiveMessages,
 	holochat_receive_message_users: counterReceiveMessageUsers,
-	holochat_super_chat_value: gaugeSuperChatValue,
+	holochat_super_chat_value: gaugeSuperChatJpyValue,
+	holochat_super_chat_value_origin: gaugeSuperChatValue,
 	holochat_video_viewers: videoViewers,
 	holochat_video_start_time_seconds: videoStartTime,
 	holochat_video_end_time_seconds: videoEndTime,
@@ -173,38 +179,43 @@ export function updateVideoMetrics(live: Video) {
 	videoUpTime.labels(label).set(endDate.getTime() / 1000);
 }
 
-function getMessageType(message: YouTubeLiveChatMessage | YtcMessage) {
+export function updateVideoEnding(live: Video, endTime: Date) {
+	const label = getVideoLabel(live);
+	videoEndTime.labels(label).set(endTime.getTime() / 1000);
+}
+
+function getMessageType(message: CustomChatItem) {
 	let type = MessageType.Other;
-	switch (message.snippet.type) {
-		case "newSponsorEvent":
+	switch (message.type) {
+		case "addMembershipItemAction":
 			type = MessageType.NewSponsor;
 			break;
-		case "superChatEvent":
+		case "addSuperChatItemAction":
 			type = MessageType.SuperChat;
 			break;
-		case "superStickerEvent":
+		case "addSuperStickerItemAction":
 			type = MessageType.SuperSticker;
 			break;
-		case "textMessageEvent":
+		case "addChatItemAction":
 			type = MessageType.TextMessage;
 			break;
 	}
 	return type;
 }
 
-function getMessageAuthorType(message: YouTubeLiveChatMessage | YtcMessage, marked = false) {
+function getMessageAuthorType(message: CustomChatItem) {
 	let authorType = MessageAuthorType.Other;
-	if (message.authorDetails.isChatOwner) authorType = MessageAuthorType.Owner;
-	else if (marked) authorType = MessageAuthorType.Marked;
-	else if (message.authorDetails.isChatModerator) authorType = MessageAuthorType.Moderator;
-	else if (message.authorDetails.isChatSponsor) authorType = MessageAuthorType.Sponsor;
-	else if (message.authorDetails.isVerified) authorType = MessageAuthorType.Verified;
+	if (message.isOwner) authorType = MessageAuthorType.Owner;
+	else if (message.isMarked) authorType = MessageAuthorType.Marked;
+	else if (message.isModerator) authorType = MessageAuthorType.Moderator;
+	else if (message.isSponsor) authorType = MessageAuthorType.Sponsor;
+	else if (message.isVerified) authorType = MessageAuthorType.Verified;
 	return authorType;
 }
 
-export function addMessageMetrics(live: Video, message: YouTubeLiveChatMessage | YtcMessage, marked = false, amount = 0, currency = "") {
+export function addMessageMetrics(live: Video, message: CustomChatItem) {
 	const type = getMessageType(message);
-	const authorType = getMessageAuthorType(message, marked);
+	const authorType = getMessageAuthorType(message);
 
 	const label: MessageLabel = {
 		...getVideoLabel(live),
@@ -218,12 +229,21 @@ export function addMessageMetrics(live: Video, message: YouTubeLiveChatMessage |
 
 	counterReceiveMessages.labels(label).inc(1);
 
-	if (amount > 0) {
+	if (message.scJpyAmount > 0) {
 		const scLabel = {
 			...label,
-			currency,
+			currency: message.scCurrency,
 		};
-		gaugeSuperChatValue.labels(scLabel).inc(amount);
+		gaugeSuperChatJpyValue.labels(scLabel).inc(message.scJpyAmount);
+		messageLabels[videoId].add(JSON.stringify(scLabel));
+	}
+
+	if (message.scAmount > 0) {
+		const scLabel = {
+			...label,
+			currency: message.scCurrency,
+		};
+		gaugeSuperChatValue.labels(scLabel).inc(message.scAmount);
 		messageLabels[videoId].add(JSON.stringify(scLabel));
 	}
 
@@ -233,9 +253,9 @@ export function addMessageMetrics(live: Video, message: YouTubeLiveChatMessage |
 			// userFilters[videoId][type] = BloomFilter.create(2000, 0.02);
 			userFilters[videoId][type] = new Set();
 		}
-		if (!userFilters[videoId][type]?.has(message.authorDetails.channelId)) {
+		if (!userFilters[videoId][type]?.has(message.authorChannelId)) {
 			counterReceiveMessageUsers.labels(label).inc(1);
-			userFilters[videoId][type]?.add(message.authorDetails.channelId);
+			userFilters[videoId][type]?.add(message.authorChannelId);
 		}
 	}
 	if (type === MessageType.TextMessage) {
@@ -254,29 +274,28 @@ export function addMessageMetrics(live: Video, message: YouTubeLiveChatMessage |
 				// 	break;
 			}
 		}
-		if (!Object.values(textMessage).some(set => set?.has(message.authorDetails.channelId))) {
+		if (!Object.values(textMessage).some(set => set?.has(message.authorChannelId))) {
 			counterReceiveMessageUsers.labels(label).inc(1);
-			textMessage[authorType]?.add(message.authorDetails.channelId);
+			textMessage[authorType]?.add(message.authorChannelId);
 		}
 	}
 }
 
-export function guessMessageAuthorType(live: Video, message: YouTubeLiveChatMessage | YtcMessage) {
-	const authorType = getMessageAuthorType(message);
-	if (authorType !== MessageAuthorType.Other) return;
-
-	const type = getMessageType(message);
-	if (type !== MessageType.SuperChat && type !== MessageType.SuperSticker) return;
-
-	const videoId = live.videoId;
+export function guessMessageAuthorType(videoId: string, channelId: string) {
+	const authorType = {
+		isOwner: false,
+		isModerator: false,
+		isVerified: false,
+		isSponsor: false,
+	};
 	const textMessage = userFilters[videoId]?.[MessageType.TextMessage];
-	if (!textMessage) return;
+	if (!textMessage) return authorType;
 
-	const channelId = message.authorDetails.channelId;
-	if (textMessage[MessageAuthorType.Owner]?.has(channelId)) message.authorDetails.isChatOwner = true;
-	else if (textMessage[MessageAuthorType.Moderator]?.has(channelId)) message.authorDetails.isChatModerator = true;
-	else if (textMessage[MessageAuthorType.Sponsor]?.has(channelId)) message.authorDetails.isChatSponsor = true;
-	else if (textMessage[MessageAuthorType.Verified]?.has(channelId)) message.authorDetails.isVerified = true;
+	if (textMessage[MessageAuthorType.Owner]?.has(channelId)) authorType.isOwner = true;
+	if (textMessage[MessageAuthorType.Moderator]?.has(channelId)) authorType.isModerator = true;
+	if (textMessage[MessageAuthorType.Sponsor]?.has(channelId)) authorType.isSponsor = true;
+	if (textMessage[MessageAuthorType.Verified]?.has(channelId)) authorType.isVerified = true;
+	return authorType;
 }
 
 export function removeVideoMetrics(live: Video) {
@@ -286,6 +305,7 @@ export function removeVideoMetrics(live: Video) {
 		messageLabels[videoId].forEach(l => {
 			const ll = JSON.parse(l);
 			if (ll.currency) {
+				gaugeSuperChatJpyValue.remove(ll);
 				gaugeSuperChatValue.remove(ll);
 			}
 			else {

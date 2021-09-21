@@ -22,19 +22,17 @@ export function parseAmountDisplayString(amountDisplayString: string) {
 	};
 }
 
-export async function currencyToJpyAmount(amount: number, currency: string) {
+export function getCurrencymapItem(currency: string): typeof currencymap.JPY {
 	let currencymapEntry: undefined | typeof currencymap.JPY;
 	for (const key of ["code", "symbol", "symbol_native"] as const) {
 		currencymapEntry = Object.values(currencymap).find(entry => entry[key] === currency);
 		if (currencymapEntry) break;
 	}
-	if (!currencymapEntry) {
-		console.error(`Unrecognizable currency: "${currency}"`);
-		return {
-			amount,
-			currency,
-		};
-	}
+	return currencymapEntry ?? currencymap.JPY;
+}
+
+export async function currencyToJpyAmount(amount: number, currency: string) {
+	const currencymapEntry = getCurrencymapItem(currency);
 	try {
 		const jpyAmount = await cc.convert(amount, currencymapEntry.code, "JPY");
 		return {

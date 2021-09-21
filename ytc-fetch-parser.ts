@@ -21,7 +21,7 @@ const getNavigationEndpointUrl = (navigationEndpoint: string | NavigationEndpoin
 	return Object.values(navigationEndpoint).find(element => getNavigationEndpointUrl(element));
 };
 
-const toMessage = (message: LiveChatSimpleString) => {
+export const toMessage = (message: LiveChatSimpleString) => {
 	if (message?.simpleText) return message.simpleText;
 	if (!message?.runs) return "";
 	return message.runs.reduce((acc, msg) => {

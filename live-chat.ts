@@ -1,12 +1,13 @@
 import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
 import { ExtraData, HolodexApiClient, Video, VideoStatus, VideoType } from "holodex.js";
-import { MasterchatError, MasterchatManager } from "masterchat";
+import { CloseLiveChatActionPanelAction, MasterchatError, MasterchatManager, ShowLiveChatActionPanelAction, UpdateLiveChatPollAction } from "masterchat";
 import moment from "moment";
 import { cache } from "./cache";
 import { CustomChatItem, parseMembershipItemAction, parseMessage, parseSuperStickerItemAction } from "./masterchat-parser";
 import { addMessageMetrics, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, initVideoMetrics, restoreAllMetrics, updateVideoEnding, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
+import { toMessage } from "./ytc-fetch-parser";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
@@ -146,7 +147,10 @@ masterchatManager.addListener("actions", (metadata, actions) => {
 				"addChatItemAction",
 				"addSuperChatItemAction",
 				"addSuperStickerItemAction",
-				"addMembershipItemAction"
+				"addMembershipItemAction",
+				"showLiveChatActionPanelAction",
+				"updateLiveChatPollAction",
+				"closeLiveChatActionPanelAction",
 			].includes(action.type)
 		);
 
@@ -169,6 +173,18 @@ masterchatManager.addListener("actions", (metadata, actions) => {
 			else if (chat.type === "addMembershipItemAction") {
 				parseMessage(live, parseMembershipItemAction(chat))
 					.then(chatItem => doChatItem(live, chatItem));
+			}
+			else if (chat.type === "showLiveChatActionPanelAction") {
+				// open poll
+				startPoll(live, chat);
+			}
+			else if (chat.type === "updateLiveChatPollAction") {
+				// update poll
+				updatePoll(live, chat);
+			}
+			else if (chat.type === "closeLiveChatActionPanelAction") {
+				// close poll
+				closePoll(live, chat);
 			}
 		}
 	}
@@ -241,6 +257,63 @@ function postDiscord(webhook: WebhookClient, live: Video, chatItem: CustomChatIt
 	message.setTimestamp(chatItem.timestamp);
 	const color = getEmbedColor(chatItem);
 	if (color) message.setColor(color);
+	return webhook.send(message);
+}
+
+type YTLiveChatPollRenderer = Omit<UpdateLiveChatPollAction, "type">;
+
+interface PollInfo {
+	openTime: Date;
+	targetId: string;
+	pollRender: YTLiveChatPollRenderer;
+}
+
+const pollInfos: Map<string, PollInfo> = new Map();
+
+function startPoll(live: Video, action: ShowLiveChatActionPanelAction) {
+	const poll = action.contents.pollRenderer;
+	const pollInfo: PollInfo = {
+		openTime: new Date(),
+		targetId: action.targetId,
+		pollRender: poll,
+	};
+	pollInfos.set(poll.liveChatPollId, pollInfo);
+	return postPollDiscord(webhook, live, pollInfo);
+}
+
+function updatePoll(live: Video, poll: UpdateLiveChatPollAction) {
+	const pollInfo = pollInfos.get(poll.liveChatPollId);
+	if (pollInfo) {
+		pollInfo.pollRender = poll;
+		pollInfos.set(poll.liveChatPollId, pollInfo);
+	}
+}
+
+function closePoll(live: Video, action: CloseLiveChatActionPanelAction) {
+	const pollInfo = [...pollInfos.entries()].find(i => i[1].targetId === action.targetPanelId);
+	if (pollInfo) {
+		pollInfos.delete(pollInfo[0]);
+		return postPollDiscord(webhook, live, pollInfo[1]);
+	}
+}
+
+function postPollDiscord(webhook: WebhookClient, live: Video, pollInfo: PollInfo) {
+	const poll = pollInfo.pollRender;
+	const isBeforeStream = !live.actualStart || live.actualStart > pollInfo.openTime;
+	const time = isBeforeStream ? 0 : Math.floor((pollInfo.openTime.getTime() - live.actualStart!.getTime()) / 1000);
+
+	const message = new MessageEmbed();
+	message.setAuthor(live.channel.name, live.channel.avatarUrl, `https://www.youtube.com/channel/${live.channel.channelId}`);
+	message.setTitle(`Opened poll • At ${secondsToHms(time)}`);
+	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
+	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
+	message.setDescription(`${toMessage(poll.header.pollHeaderRenderer.metadataText as any)}
+**${poll.header.pollHeaderRenderer.pollQuestion?.simpleText}**
+${poll.choices.map((choice, index) => {
+	return `${index + 1}. ${choice.text?.simpleText}: ${choice.votePercentage?.simpleText}`;
+}).join("\n")}`);
+	message.setFooter(live.title, live.channel.avatarUrl);
+	message.setTimestamp(pollInfo.openTime);
 	return webhook.send(message);
 }
 

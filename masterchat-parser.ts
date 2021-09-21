@@ -11,7 +11,8 @@ const channels = config.has("channels") ? config.get<string[]>("channels") : [];
 
 interface CustomAddSuperStickerItemAction extends Omit<AddSuperChatItemAction, "type" | "superchat"> {
 	type: "addSuperStickerItemAction";
-	superchat: Omit<SuperChat, "headerBackgroundColor" | "headerTextColor" | "bodyBackgroundColor" | "bodyTextColor">
+	superchat: Omit<SuperChat, "headerBackgroundColor" | "headerTextColor" | "bodyBackgroundColor" | "bodyTextColor">;
+	stickerPhoto: string;
 }
 
 export function parseSuperStickerItemAction(renderer: AddSuperStickerItemAction): CustomAddSuperStickerItemAction {
@@ -46,7 +47,7 @@ export function parseSuperStickerItemAction(renderer: AddSuperStickerItemAction)
 		id: renderer.id,
 		timestamp,
 		timestampUsec,
-		rawMessage: [{ text: `[Sticker]:${renderer.sticker.accessibility.accessibilityData.label}:${stickerPhoto}` }],
+		rawMessage: [{ text: `[Sticker]:${renderer.sticker.accessibility.accessibilityData.label}:` }],
 		authorName: renderer.authorName?.simpleText,
 		authorPhoto,
 		authorChannelId,
@@ -56,6 +57,7 @@ export function parseSuperStickerItemAction(renderer: AddSuperStickerItemAction)
 			color,
 			significance,
 		},
+		stickerPhoto: stickerPhoto.startsWith("http") ? stickerPhoto : `https:${stickerPhoto}`,
 	};
 	return raw;
 }
@@ -114,6 +116,7 @@ export interface CustomChatItem extends Omit<TextedChatItem, ""> {
 	isBeforeStream: boolean;
 	time: number;
 	timeCode: string;
+	image?: string;
 }
 
 function getAuthorTypeTags(chatItem: CustomChatItem) {
@@ -159,6 +162,10 @@ export async function parseMessage(live: Video, message: TextedChatItem) {
 
 		const jpy = await currencyToJpyAmount(chatItem.scAmount, chatItem.scCurrency);
 		chatItem.scJpyAmount = jpy.amount;
+	}
+
+	if (message.type === "addSuperStickerItemAction") {
+		chatItem.image = message.stickerPhoto;
 	}
 
 	return chatItem;

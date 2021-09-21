@@ -1,13 +1,16 @@
+import * as fs from "fs/promises";
 import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
 import { ExtraData, HolodexApiClient, Video, VideoStatus, VideoType } from "holodex.js";
-import { CloseLiveChatActionPanelAction, MasterchatError, MasterchatManager, ShowLiveChatActionPanelAction, UpdateLiveChatPollAction } from "masterchat";
+import { CloseLiveChatActionPanelAction, MasterchatError, MasterchatManager, ModeChangeAction, ShowLiveChatActionPanelAction, UpdateLiveChatPollAction } from "masterchat";
 import moment from "moment";
+import { merge } from "lodash";
 import { cache } from "./cache";
 import { CustomChatItem, parseMembershipItemAction, parseMessage, parseSuperStickerItemAction } from "./masterchat-parser";
 import { addMessageMetrics, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, initVideoMetrics, restoreAllMetrics, updateVideoEnding, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
 import { toMessage } from "./ytc-fetch-parser";
+import path from "path";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
@@ -20,10 +23,6 @@ const webhook2 = config.has("discord_id_full") ? new WebhookClient(config.get<st
 
 // const messageFilters: Record<string, BloomFilter> = {};
 let inited = false;
-
-function delay(sec: number) {
-	return new Promise((resolve) => global.setTimeout(resolve, sec));
-}
 
 export async function fetchChannel() {
 	const t = moment();
@@ -151,6 +150,7 @@ masterchatManager.addListener("actions", (metadata, actions) => {
 				"showLiveChatActionPanelAction",
 				"updateLiveChatPollAction",
 				"closeLiveChatActionPanelAction",
+				"modeChangeAction",
 			].includes(action.type)
 		);
 
@@ -164,27 +164,39 @@ masterchatManager.addListener("actions", (metadata, actions) => {
 			// messageFilters[videoId]?.add(chat.id);
 			if (chat.type === "addChatItemAction" || chat.type === "addSuperChatItemAction") {
 				parseMessage(live, chat)
-					.then(chatItem => doChatItem(live, chatItem));
+					.then(chatItem => onChatItem(live, chatItem));
+
+				if (chat.rawMessage?.some(run => (run as any).navigationEndpoint)) {
+					writeDebugJson(live, `navigationEndpoint-${chat.id}`, chat);
+				}
 			}
 			else if (chat.type === "addSuperStickerItemAction") {
 				parseMessage(live, parseSuperStickerItemAction(chat))
-					.then(chatItem => doChatItem(live, chatItem));
+					.then(chatItem => onChatItem(live, chatItem));
 			}
 			else if (chat.type === "addMembershipItemAction") {
 				parseMessage(live, parseMembershipItemAction(chat))
-					.then(chatItem => doChatItem(live, chatItem));
+					.then(chatItem => onChatItem(live, chatItem));
 			}
 			else if (chat.type === "showLiveChatActionPanelAction") {
 				// open poll
-				startPoll(live, chat);
+				writeDebugJson(live, `showLiveChatActionPanelAction-${chat.id}`, chat);
+				onStartPoll(live, chat);
 			}
 			else if (chat.type === "updateLiveChatPollAction") {
 				// update poll
-				updatePoll(live, chat);
+				writeDebugJson(live, `updateLiveChatPollAction-${chat.liveChatPollId}`, chat);
+				onUpdatePoll(live, chat);
 			}
 			else if (chat.type === "closeLiveChatActionPanelAction") {
 				// close poll
-				closePoll(live, chat);
+				writeDebugJson(live, `closeLiveChatActionPanelAction-${chat.targetPanelId}`, chat);
+				onClosePoll(live, chat);
+			}
+			else if (chat.type === "modeChangeAction") {
+				// mode change
+				writeDebugJson(live, `modeChangeAction-${chat.mode}`, chat);
+				onModeChange(live, chat);
 			}
 		}
 	}
@@ -201,7 +213,7 @@ masterchatManager.addListener("end", (metadata, reason) => {
 });
 
 masterchatManager.addListener("error", (metadata, error) => {
-	console.error(error);
+	console.error(`[${metadata.videoId}] ${error.message}`);
 	if (error instanceof MasterchatError) {
 		switch (error.code) {
 			case "membersOnly":
@@ -223,7 +235,9 @@ masterchatManager.addListener("error", (metadata, error) => {
 
 //#endregion
 
-async function doChatItem(live: Video, chatItem: CustomChatItem) {
+//#region chat item
+
+async function onChatItem(live: Video, chatItem: CustomChatItem) {
 	const isImportant = chatItem.isOwner || chatItem.isModerator || chatItem.isMarked;
 	if (isImportant) {
 		console.log(`[${live.videoId}][${chatItem.timeCode}] ${chatItem.authorName}${chatItem.authorTags.length ? `(${chatItem.authorTags.join(",")})` : ""}: ${chatItem.message}`);
@@ -255,70 +269,17 @@ function postDiscord(webhook: WebhookClient, live: Video, chatItem: CustomChatIt
 	message.setDescription(chatItem.message);
 	message.setFooter(live.title, live.channel.avatarUrl);
 	message.setTimestamp(chatItem.timestamp);
+	if (chatItem.image) message.setImage(chatItem.image);
 	const color = getEmbedColor(chatItem);
 	if (color) message.setColor(color);
 	return webhook.send(message);
 }
 
-type YTLiveChatPollRenderer = Omit<UpdateLiveChatPollAction, "type">;
-
-interface PollInfo {
-	openTime: Date;
-	targetId: string;
-	pollRender: YTLiveChatPollRenderer;
-}
-
-const pollInfos: Map<string, PollInfo> = new Map();
-
-function startPoll(live: Video, action: ShowLiveChatActionPanelAction) {
-	const poll = action.contents.pollRenderer;
-	const pollInfo: PollInfo = {
-		openTime: new Date(),
-		targetId: action.targetId,
-		pollRender: poll,
-	};
-	pollInfos.set(poll.liveChatPollId, pollInfo);
-	return postPollDiscord(webhook, live, pollInfo);
-}
-
-function updatePoll(live: Video, poll: UpdateLiveChatPollAction) {
-	const pollInfo = pollInfos.get(poll.liveChatPollId);
-	if (pollInfo) {
-		pollInfo.pollRender = poll;
-		pollInfos.set(poll.liveChatPollId, pollInfo);
-	}
-}
-
-function closePoll(live: Video, action: CloseLiveChatActionPanelAction) {
-	const pollInfo = [...pollInfos.entries()].find(i => i[1].targetId === action.targetPanelId);
-	if (pollInfo) {
-		pollInfos.delete(pollInfo[0]);
-		return postPollDiscord(webhook, live, pollInfo[1]);
-	}
-}
-
-function postPollDiscord(webhook: WebhookClient, live: Video, pollInfo: PollInfo) {
-	const poll = pollInfo.pollRender;
-	const isBeforeStream = !live.actualStart || live.actualStart > pollInfo.openTime;
-	const time = isBeforeStream ? 0 : Math.floor((pollInfo.openTime.getTime() - live.actualStart!.getTime()) / 1000);
-
-	const message = new MessageEmbed();
-	message.setAuthor(live.channel.name, live.channel.avatarUrl, `https://www.youtube.com/channel/${live.channel.channelId}`);
-	message.setTitle(`Opened poll • At ${secondsToHms(time)}`);
-	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
-	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
-	message.setDescription(`${toMessage(poll.header.pollHeaderRenderer.metadataText as any)}
-**${poll.header.pollHeaderRenderer.pollQuestion?.simpleText}**
-${poll.choices.map((choice, index) => {
-	return `${index + 1}. ${choice.text?.simpleText}: ${choice.votePercentage?.simpleText}`;
-}).join("\n")}`);
-	message.setFooter(live.title, live.channel.avatarUrl);
-	message.setTimestamp(pollInfo.openTime);
-	return webhook.send(message);
-}
-
 function getEmbedColor(message: CustomChatItem) {
-	if (message.isOwner || message.isModerator) {
+	if (message.isOwner) {
+		return 0xffd600; // 台主
+	}
+	if (message.isModerator) {
 		return 0x5e84f1; // 板手
 	}
 	if (message.type === "addMembershipItemAction") {
@@ -338,14 +299,116 @@ function getEmbedColor(message: CustomChatItem) {
 		case 6:
 			return 0xe91e63; // 紫
 		case 7:
-		// case 8:
+			// case 8:
 			return 0xe62117; // 紅
 	}
 }
+
+//#endregion
+
+//#region poll
+
+type YTLiveChatPollRenderer = Omit<UpdateLiveChatPollAction, "type">;
+
+interface PollInfo {
+	openTime: Date;
+	targetIds: string[];
+	pollRender: YTLiveChatPollRenderer;
+}
+
+const pollInfos: Map<string, PollInfo> = new Map();
+
+function onStartPoll(live: Video, action: ShowLiveChatActionPanelAction) {
+	const poll = action.contents.pollRenderer;
+	const pollInfo: PollInfo = {
+		openTime: new Date(),
+		targetIds: [live.videoId, action.contents.pollRenderer.liveChatPollId, action.id, action.targetId],
+		pollRender: poll,
+	};
+	pollInfos.set(poll.liveChatPollId, pollInfo);
+	return postPollDiscord(webhook, live, pollInfo);
+}
+
+function onUpdatePoll(live: Video, poll: UpdateLiveChatPollAction) {
+	const pollInfo = pollInfos.get(poll.liveChatPollId);
+	if (pollInfo) {
+		pollInfo.pollRender = merge(pollInfo.pollRender, poll);
+		pollInfos.set(poll.liveChatPollId, pollInfo);
+	}
+}
+
+function onClosePoll(live: Video, action: CloseLiveChatActionPanelAction) {
+	const pollInfo = [...pollInfos.entries()].find(i => i[1].targetIds.includes(action.targetPanelId)) ??
+		[...pollInfos.entries()].find(i => i[1].targetIds.includes(live.videoId));
+	if (pollInfo) {
+		pollInfos.delete(pollInfo[0]);
+		return postPollDiscord(webhook, live, pollInfo[1]);
+	}
+}
+
+function postPollDiscord(webhook: WebhookClient, live: Video, pollInfo: PollInfo) {
+	const poll = pollInfo.pollRender;
+	const isBeforeStream = !live.actualStart || live.actualStart > pollInfo.openTime;
+	const time = isBeforeStream ? 0 : Math.floor((pollInfo.openTime.getTime() - live.actualStart!.getTime()) / 1000);
+
+	const message = new MessageEmbed();
+	message.setAuthor(live.channel.name, live.channel.avatarUrl, `https://www.youtube.com/channel/${live.channel.channelId}`);
+	message.setTitle(`Opened poll • At ${secondsToHms(time)}`);
+	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
+	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
+	message.setDescription(`${toMessage(poll.header.pollHeaderRenderer.metadataText as any)}
+**${toMessage(poll.header.pollHeaderRenderer.pollQuestion)}**
+${poll.choices.map((choice, index) => {
+	return `${index + 1}. ${toMessage(choice.text)}: ${toMessage(choice.votePercentage)}`;
+}).join("\n")}`);
+	message.setFooter(live.title, live.channel.avatarUrl);
+	message.setTimestamp(pollInfo.openTime);
+	return webhook.send(message);
+}
+
+//#endregion
+
+//#region mode change
+
+function onModeChange(live: Video, chat: ModeChangeAction) {
+	const now = new Date();
+	const isBeforeStream = !live.actualStart || live.actualStart > now;
+	const time = isBeforeStream ? 0 : Math.floor((now.getTime() - live.actualStart!.getTime()) / 1000);
+
+	const message = new MessageEmbed();
+	message.setAuthor(live.channel.name, live.channel.avatarUrl, `https://www.youtube.com/channel/${live.channel.channelId}`);
+	message.setTitle(`Mode changed • At ${secondsToHms(time)}`);
+	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
+	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
+	message.setDescription(chat.description);
+	message.addField("Enabled", `${chat.enabled}`, true);
+	message.addField("Mode", `${chat.mode}`, true);
+	message.setFooter(live.title, live.channel.avatarUrl);
+	message.setTimestamp(now);
+	return webhook.send(message);
+}
+
+//#endregion
 
 function logChatsCount() {
 	global.setTimeout(() => {
 		// const lived = cache.get<string[]>(KEY_YOUTUBE_LIVE_IDS) ?? [];
 		console.log(`Current recording chats: ${masterchatManager.streamCount()}`);
 	}, 10);
+}
+
+function delay(sec: number) {
+	return new Promise((resolve) => global.setTimeout(resolve, sec));
+}
+
+async function writeDebugJson(live: Video, name: string, obj: any) {
+	const json = JSON.stringify(obj, null, 2);
+	const outPath = `debug/${live.videoId}-${name}.json`;
+	try {
+		await fs.mkdir(path.dirname(outPath));
+		await fs.writeFile(outPath, json);
+	}
+	catch (e) {
+		console.error("[writeDebugJson]", e, json);
+	}
 }

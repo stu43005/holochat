@@ -326,7 +326,7 @@ function onStartPoll(live: Video, action: ShowLiveChatActionPanelAction) {
 		pollRender: poll,
 	};
 	pollInfos.set(poll.liveChatPollId, pollInfo);
-	return postPollDiscord(webhook, live, pollInfo);
+	return postPollDiscord(webhook, live, pollInfo, "open");
 }
 
 function onUpdatePoll(live: Video, poll: UpdateLiveChatPollAction) {
@@ -342,18 +342,18 @@ function onClosePoll(live: Video, action: CloseLiveChatActionPanelAction) {
 		[...pollInfos.entries()].find(i => i[1].targetIds.includes(live.videoId));
 	if (pollInfo) {
 		pollInfos.delete(pollInfo[0]);
-		return postPollDiscord(webhook, live, pollInfo[1]);
+		return postPollDiscord(webhook, live, pollInfo[1], "close");
 	}
 }
 
-function postPollDiscord(webhook: WebhookClient, live: Video, pollInfo: PollInfo) {
+function postPollDiscord(webhook: WebhookClient, live: Video, pollInfo: PollInfo, action: "open" | "close") {
 	const poll = pollInfo.pollRender;
 	const isBeforeStream = !live.actualStart || live.actualStart > pollInfo.openTime;
 	const time = isBeforeStream ? 0 : Math.floor((pollInfo.openTime.getTime() - live.actualStart!.getTime()) / 1000);
 
 	const message = new MessageEmbed();
 	message.setAuthor(live.channel.name, live.channel.avatarUrl, `https://www.youtube.com/channel/${live.channel.channelId}`);
-	message.setTitle(`Opened poll • At ${secondsToHms(time)}`);
+	message.setTitle(`${action === "open" ? "Opened poll" : "Closed poll"} • At ${secondsToHms(time)}`);
 	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
 	message.setDescription(`${toMessage(poll.header.pollHeaderRenderer.metadataText as any)}

@@ -213,8 +213,8 @@ masterchatManager.addListener("end", (metadata, reason) => {
 });
 
 masterchatManager.addListener("error", (metadata, error) => {
-	console.error(`[${metadata.videoId}] ${error.message}`);
 	if (error instanceof MasterchatError) {
+		console.error(`[${metadata.videoId}] ${error.message}`);
 		switch (error.code) {
 			case "membersOnly":
 			case "private":
@@ -229,6 +229,9 @@ masterchatManager.addListener("error", (metadata, error) => {
 		// "denied" => Access denied
 		// "invalid" => Invalid request
 		// "unknown" => Unknown error
+	}
+	else {
+		console.error(`[${metadata.videoId}]`, error);
 	}
 	stopChatRecord(metadata.videoId, true);
 });

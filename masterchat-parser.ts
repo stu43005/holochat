@@ -1,9 +1,8 @@
 import config from "config";
 import { Video } from "holodex.js";
-import { AddChatItemAction, AddMembershipItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, SuperChat, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP } from "masterchat";
+import { AddChatItemAction, AddMembershipItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, runsToString, SuperChat, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTTextRun } from "masterchat";
 import { guessMessageAuthorType } from "./metrics";
 import { currencyToJpyAmount, getCurrencymapItem, secondsToHms } from "./utils";
-import { toMessage } from "./ytc-fetch-parser";
 
 const channels = config.has("channels") ? config.get<string[]>("channels") : [];
 
@@ -88,7 +87,7 @@ export function parseMembershipItemAction(renderer: AddMembershipItemAction) {
 		timestamp,
 		timestampUsec,
 		rawMessage: renderer.headerSubtext?.runs ?? (renderer as any).headerPrimaryText?.runs,
-		authorName: toMessage(renderer.authorName),
+		authorName: renderer.authorName.simpleText,
 		authorPhoto,
 		authorChannelId,
 		contextMenuEndpointParams: renderer.contextMenuEndpoint.clickTrackingParams,
@@ -130,6 +129,18 @@ function getAuthorTypeTags(chatItem: CustomChatItem) {
 	return authorTypeTags;
 }
 
+export const runsToStringOptions = {
+	textHandler: (run: YTTextRun): string => {
+		if (run.navigationEndpoint) {
+			const url = endpointToUrl(run.navigationEndpoint);
+			if (url) {
+				return `[${run.text}](${url})`;
+			}
+		}
+		return run.text;
+	}
+};
+
 export async function parseMessage(live: Video, message: TextedChatItem) {
 	const isBeforeStream = !live.actualStart || live.actualStart > message.timestamp;
 	const time = isBeforeStream ? 0 : Math.floor((message.timestamp.getTime() - live.actualStart!.getTime()) / 1000);
@@ -143,7 +154,7 @@ export async function parseMessage(live: Video, message: TextedChatItem) {
 		...message,
 		isMarked: !!(channels.length && channels.includes(message.authorChannelId)),
 		authorTags: [],
-		message: toMessage({ runs: message.rawMessage as any }),
+		message: message.rawMessage ? runsToString(message.rawMessage, runsToStringOptions) : "",
 		scTier: 0,
 		scAmount: 0,
 		scCurrency: "",

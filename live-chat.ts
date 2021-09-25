@@ -1,23 +1,22 @@
-import * as fs from "fs/promises";
 import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
+import * as fs from "fs/promises";
 import { ExtraData, HolodexApiClient, Video, VideoStatus, VideoType } from "holodex.js";
-import { CloseLiveChatActionPanelAction, MasterchatError, MasterchatManager, ModeChangeAction, ShowLiveChatActionPanelAction, UpdateLiveChatPollAction } from "masterchat";
-import moment from "moment";
 import { merge } from "lodash";
+import { CloseLiveChatActionPanelAction, MasterchatError, ModeChangeAction, runsToString, ShowLiveChatActionPanelAction, StreamPool, UpdateLiveChatPollAction } from "masterchat";
+import moment from "moment";
+import path from "path";
 import { cache } from "./cache";
 import { CustomChatItem, parseMembershipItemAction, parseMessage, parseSuperStickerItemAction } from "./masterchat-parser";
 import { addMessageMetrics, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, initVideoMetrics, restoreAllMetrics, updateVideoEnding, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
-import { toMessage } from "./ytc-fetch-parser";
-import path from "path";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
 const holoapi = new HolodexApiClient({
 	apiKey: config.get<string>("holodex_apikey"),
 });
-const masterchatManager = new MasterchatManager({ isLive: true });
+const masterchatManager = new StreamPool({ mode: "live" });
 const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<string>("discord_token"));
 const webhook2 = config.has("discord_id_full") ? new WebhookClient(config.get<string>("discord_id_full"), config.get<string>("discord_token_full")) : null;
 
@@ -138,7 +137,7 @@ export function deleteStopRecordTimer(videoId: string) {
 
 //#region masterchat listeners
 
-masterchatManager.addListener("actions", (metadata, actions) => {
+masterchatManager.addListener("actions", (actions, metadata) => {
 	const live = cache.get<Video>(metadata.videoId);
 	if (live) {
 		const chats = actions.filter(
@@ -202,17 +201,15 @@ masterchatManager.addListener("actions", (metadata, actions) => {
 	}
 });
 
-masterchatManager.addListener("end", (metadata, reason) => {
-	if (!reason) {
-		const live = cache.get<Video>(metadata.videoId);
-		if (live && !live.actualEnd) {
-			updateVideoEnding(live, new Date());
-		}
+masterchatManager.addListener("end", (metadata) => {
+	const live = cache.get<Video>(metadata.videoId);
+	if (live && !live.actualEnd) {
+		updateVideoEnding(live, new Date());
 	}
 	stopChatRecord(metadata.videoId);
 });
 
-masterchatManager.addListener("error", (metadata, error) => {
+masterchatManager.addListener("error", (error, metadata) => {
 	if (error instanceof MasterchatError) {
 		console.error(`[${metadata.videoId}] ${error.message}`);
 		switch (error.code) {
@@ -359,10 +356,10 @@ function postPollDiscord(webhook: WebhookClient, live: Video, pollInfo: PollInfo
 	message.setTitle(`${action === "open" ? "Opened poll" : "Closed poll"} • At ${secondsToHms(time)}`);
 	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
-	message.setDescription(`${toMessage(poll.header.pollHeaderRenderer.metadataText as any)}
-**${toMessage(poll.header.pollHeaderRenderer.pollQuestion)}**
+	message.setDescription(`${runsToString(poll.header.pollHeaderRenderer.metadataText.runs)}
+**${runsToString(poll.header.pollHeaderRenderer.pollQuestion.runs)}**
 ${poll.choices.map((choice, index) => {
-	return `${index + 1}. ${toMessage(choice.text)}: ${toMessage(choice.votePercentage)}`;
+	return `${index + 1}. ${runsToString(choice.text.runs)}: ${choice.votePercentage?.simpleText ?? ""}`;
 }).join("\n")}`);
 	message.setFooter(live.title, live.channel.avatarUrl);
 	message.setTimestamp(pollInfo.openTime);

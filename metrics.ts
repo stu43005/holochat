@@ -3,7 +3,6 @@ import fs from "fs";
 import type { Video } from "holodex.js";
 import path from "path";
 import { Counter, Gauge, register } from "prom-client";
-import { bloomFilterFromJSON } from "./bloom-filter-extension";
 import { cache } from "./cache";
 import { CustomChatItem } from "./masterchat-parser";
 
@@ -417,9 +416,6 @@ export function restoreAllMetrics(now: Video[]) {
 	const userFiltersBackup = readJsonFile(backupUserFiltersPath);
 	if (userFiltersBackup) {
 		const userFiltersBackup2 = JSON.parse(JSON.stringify(userFiltersBackup), (key, value) => {
-			if (typeof value === "object" && value.type === "bloom-filter") {
-				return bloomFilterFromJSON(value);
-			}
 			if (typeof value === "object" && value.type === "BloomFilter") {
 				return BloomFilter.fromJSON(value);
 			}

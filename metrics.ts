@@ -18,6 +18,7 @@ interface VideoLabel {
 }
 
 const enum MessageType {
+	Milestone = "milestone",
 	NewSponsor = "newSponsor",
 	SuperChat = "superChat",
 	SuperSticker = "superSticker",
@@ -184,22 +185,19 @@ export function updateVideoEnding(live: Video, endTime: Date) {
 }
 
 function getMessageType(message: CustomChatItem) {
-	let type = MessageType.Other;
 	switch (message.type) {
 		case "addMembershipItemAction":
-			type = MessageType.NewSponsor;
-			break;
+			return MessageType.NewSponsor;
+		case "addMembershipMilestoneItemAction":
+			return MessageType.Milestone;
 		case "addSuperChatItemAction":
-			type = MessageType.SuperChat;
-			break;
+			return MessageType.SuperChat;
 		case "addSuperStickerItemAction":
-			type = MessageType.SuperSticker;
-			break;
+			return MessageType.SuperSticker;
 		case "addChatItemAction":
-			type = MessageType.TextMessage;
-			break;
+			return MessageType.TextMessage;
 	}
-	return type;
+	return MessageType.Other;
 }
 
 function getMessageAuthorType(message: CustomChatItem) {

@@ -1,6 +1,6 @@
 import config from "config";
 import { Video } from "holodex.js";
-import { AddChatItemAction, AddMembershipItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, runsToString, SuperChat, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTTextRun } from "masterchat";
+import { AddChatItemAction, AddMembershipItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, runsToString, SuperChat, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTRun, YTTextRun } from "masterchat";
 import { guessMessageAuthorType } from "./metrics";
 import { currencyToJpyAmount, getCurrencymapItem, secondsToHms } from "./utils";
 
@@ -65,8 +65,9 @@ export function parseSuperStickerItemAction(renderer: AddSuperStickerItemAction)
 
 //#region membership item action
 
-interface CustomAddMembershipItemAction extends Omit<AddChatItemAction, "type" | "isOwner" | "isModerator" | "isVerified"> {
-	type: "addMembershipItemAction";
+interface CustomAddMembershipItemAction extends Omit<AddChatItemAction, "type" | "isOwner" | "isModerator" | "isVerified" | "rawMessage"> {
+	type: "addMembershipItemAction" | "addMembershipMilestoneItemAction";
+	rawMessage?: YTRun[];
 	isSponsor: true;
 }
 
@@ -81,12 +82,16 @@ export function parseMembershipItemAction(renderer: AddMembershipItemAction) {
 			renderer.authorPhoto.thumbnails.length - 1
 		].url;
 
+	// new member: { headerSubtext: "[runs] New member" }
+	// member milestone: { message?: "[runs] Message", empty?: true, headerPrimaryText: "[runs] Member for x months", headerSubtext: "[simpleText] Member title" }
+	const isMilestone = "empty" in renderer || "message" in renderer;
+
 	const raw: CustomAddMembershipItemAction = {
-		type: "addMembershipItemAction",
+		type: isMilestone ? "addMembershipMilestoneItemAction" : "addMembershipItemAction",
 		id: renderer.id,
 		timestamp,
 		timestampUsec,
-		rawMessage: renderer.headerSubtext?.runs ?? (renderer as any).headerPrimaryText?.runs,
+		rawMessage: isMilestone ? (renderer as any).message?.runs : renderer.headerSubtext?.runs,
 		authorName: renderer.authorName.simpleText,
 		authorPhoto,
 		authorChannelId,

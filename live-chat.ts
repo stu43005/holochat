@@ -179,22 +179,18 @@ masterchatManager.addListener("actions", (actions, metadata) => {
 			}
 			else if (chat.type === "showLiveChatActionPanelAction") {
 				// open poll
-				writeDebugJson(live, `showLiveChatActionPanelAction-${chat.id}`, chat);
 				onStartPoll(live, chat);
 			}
 			else if (chat.type === "updateLiveChatPollAction") {
 				// update poll
-				writeDebugJson(live, `updateLiveChatPollAction-${chat.liveChatPollId}`, chat);
 				onUpdatePoll(live, chat);
 			}
 			else if (chat.type === "closeLiveChatActionPanelAction") {
 				// close poll
-				writeDebugJson(live, `closeLiveChatActionPanelAction-${chat.targetPanelId}`, chat);
 				onClosePoll(live, chat);
 			}
 			else if (chat.type === "modeChangeAction") {
 				// mode change
-				writeDebugJson(live, `modeChangeAction-${chat.mode}`, chat);
 				onModeChange(live, chat);
 			}
 		}
@@ -283,6 +279,9 @@ function getEmbedColor(message: CustomChatItem) {
 		return 0x5e84f1; // 板手
 	}
 	if (message.type === "addMembershipItemAction") {
+		return 0x0f9d58; // 深綠
+	}
+	if (message.type === "addMembershipMilestoneItemAction") {
 		return 0x0f9d58; // 深綠
 	}
 	switch (message.scTier) {

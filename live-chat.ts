@@ -19,6 +19,7 @@ const holoapi = new HolodexApiClient({
 const masterchatManager = new StreamPool({ mode: "live" });
 const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<string>("discord_token"));
 const webhook2 = config.has("discord_id_full") ? new WebhookClient(config.get<string>("discord_id_full"), config.get<string>("discord_token_full")) : null;
+const extraChannels = config.has("extraChannels") ? config.get<string[]>("extraChannels") : [];
 
 // const messageFilters: Record<string, BloomFilter> = {};
 let inited = false;
@@ -34,6 +35,12 @@ export async function fetchChannel() {
 		type: VideoType.Stream,
 		include: [ExtraData.LiveInfo],
 	});
+	if (extraChannels) {
+		const lives2 = await holoapi.getLiveVideosByChannelId(extraChannels);
+		lives2.forEach(video => {
+			lives.push(video);
+		});
+	}
 	for (const video of ended) {
 		if (video.actualEnd) {
 			const actualEnd = moment(video.actualEnd);
@@ -208,12 +215,6 @@ masterchatManager.addListener("end", (metadata) => {
 masterchatManager.addListener("error", (error, metadata) => {
 	if (error instanceof MasterchatError) {
 		console.error(`[${metadata.videoId}] ${error.message}`);
-		switch (error.code) {
-			case "membersOnly":
-			case "private":
-				// dont remove metrics
-				return;
-		}
 		// "disabled" => Live chat is disabled
 		// "membersOnly" => No permission (members-only)
 		// "private" => No permission (private video)

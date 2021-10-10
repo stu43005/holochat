@@ -306,6 +306,10 @@ export function removeVideoMetrics(live: Video) {
 		messageLabels[videoId].forEach(l => {
 			const ll = JSON.parse(l);
 			metricKeys.forEach((key) => {
+				const savedLabels: string[] = (metrics[key] as any).labelNames;
+				if (Object.keys(ll).some(label => !savedLabels.includes(label))) {
+					return;
+				}
 				metrics[key].remove(ll);
 			});
 		});

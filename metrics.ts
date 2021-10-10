@@ -459,10 +459,8 @@ function restoreVideoMetrics(backup: any[], live: Video) {
 				metric.labels(valueLabel).inc(valueValue);
 			}
 
-			if (key === "holochat_receive_messages" || key === "holochat_super_chat_value") {
-				if (!messageLabels[videoId]) messageLabels[videoId] = new Set();
-				messageLabels[videoId].add(JSON.stringify(valueLabel));
-			}
+			if (!messageLabels[videoId]) messageLabels[videoId] = new Set();
+			messageLabels[videoId].add(JSON.stringify(valueLabel));
 
 			cache.set(getVideoLabelKey(videoId), {
 				channelId: valueLabel.channelId,

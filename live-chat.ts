@@ -35,7 +35,7 @@ export async function fetchChannel() {
 		type: VideoType.Stream,
 		include: [ExtraData.LiveInfo],
 	});
-	if (extraChannels) {
+	if (extraChannels && extraChannels.length) {
 		const lives2 = await holoapi.getLiveVideosByChannelId(extraChannels);
 		lives2.forEach(video => {
 			lives.push(video);

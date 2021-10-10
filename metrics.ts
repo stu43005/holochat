@@ -139,12 +139,15 @@ const metrics = {
 
 export function getVideoLabel(live: Video): VideoLabel {
 	const cacheKey = getVideoLabelKey(live.videoId);
-	return cache.getDefault(cacheKey, () => ({
+	const label: VideoLabel = cache.getDefault(cacheKey, () => ({
 		channelId: live.channel.channelId,
 		channelName: live.channel.name,
 		videoId: live.videoId,
 		title: live.title,
 	}));
+	if (!messageLabels[live.videoId]) messageLabels[live.videoId] = new Set();
+	messageLabels[live.videoId].add(JSON.stringify(label));
+	return label;
 }
 
 function getVideoLabelKey(videoId: string) {
@@ -298,17 +301,13 @@ export function guessMessageAuthorType(videoId: string, channelId: string) {
 export function removeVideoMetrics(live: Video) {
 	const label = getVideoLabel(live);
 	const videoId = live.videoId;
+	const metricKeys: (keyof typeof metrics)[] = Object.keys(metrics) as any;
 	if (messageLabels[videoId]) {
 		messageLabels[videoId].forEach(l => {
 			const ll = JSON.parse(l);
-			if (ll.currency) {
-				gaugeSuperChatJpyValue.remove(ll);
-				gaugeSuperChatValue.remove(ll);
-			}
-			else {
-				counterReceiveMessages.remove(ll);
-				counterReceiveMessageUsers.remove(ll);
-			}
+			metricKeys.forEach((key) => {
+				metrics[key].remove(ll);
+			});
 		});
 		delete messageLabels[videoId];
 	}

@@ -2,12 +2,11 @@ import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
 import * as fs from "fs/promises";
 import { ExtraData, HolodexApiClient, Video, VideoStatus, VideoType } from "holodex.js";
-import { merge } from "lodash";
-import { CloseLiveChatActionPanelAction, MasterchatError, ModeChangeAction, runsToString, ShowLiveChatActionPanelAction, StreamPool, UpdateLiveChatPollAction } from "masterchat";
+import { AddViewerEngagementMessageAction, MasterchatError, ModeChangeAction, StreamPool } from "masterchat";
 import moment from "moment";
 import path from "path";
 import { cache } from "./cache";
-import { CustomChatItem, parseMembershipItemAction, parseMessage, parseSuperStickerItemAction } from "./masterchat-parser";
+import { checkIsMarked, CustomChatItem, parseMessage } from "./masterchat-parser";
 import { addMessageMetrics, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, initVideoMetrics, restoreAllMetrics, updateVideoEnding, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
 
@@ -144,77 +143,59 @@ export function deleteStopRecordTimer(videoId: string) {
 
 //#region masterchat listeners
 
-masterchatManager.addListener("actions", (actions, metadata) => {
-	const live = cache.get<Video>(metadata.videoId);
+masterchatManager.addListener("actions", (actions, mc) => {
+	const live = cache.get<Video>(mc.videoId);
 	if (live) {
-		const chats = actions.filter(
-			(action) => [
-				"addChatItemAction",
-				"addSuperChatItemAction",
-				"addSuperStickerItemAction",
-				"addMembershipItemAction",
-				"showLiveChatActionPanelAction",
-				"updateLiveChatPollAction",
-				"closeLiveChatActionPanelAction",
-				"modeChangeAction",
-			].includes(action.type)
-		);
-
-		for (const chat of chats) {
+		for (const chat of actions) {
 			// console.log(chat.authorName, runsToString(chat.rawMessage));
 
-			// if (messageFilters[videoId]?.has(chat.id)) {
-			// 	counterFilterTestFailed.labels(getVideoLabel(newlive)).inc(1);
-			// 	return;
-			// }
-			// messageFilters[videoId]?.add(chat.id);
-			if (chat.type === "addChatItemAction" || chat.type === "addSuperChatItemAction") {
-				parseMessage(live, chat)
-					.then(chatItem => onChatItem(live, chatItem));
+			switch (chat.type) {
+				case "addChatItemAction":
+				case "addSuperChatItemAction":
+				case "addSuperStickerItemAction":
+				case "addMembershipItemAction":
+				case "addMembershipMilestoneItemAction":
+					parseMessage(live, chat)
+						.then(chatItem => onChatItem(live, chatItem));
 
-				if (chat.rawMessage?.some(run => (run as any).navigationEndpoint)) {
-					writeDebugJson(live, `navigationEndpoint-${chat.id}`, chat);
-				}
-			}
-			else if (chat.type === "addSuperStickerItemAction") {
-				parseMessage(live, parseSuperStickerItemAction(chat))
-					.then(chatItem => onChatItem(live, chatItem));
-			}
-			else if (chat.type === "addMembershipItemAction") {
-				parseMessage(live, parseMembershipItemAction(chat))
-					.then(chatItem => onChatItem(live, chatItem));
-			}
-			else if (chat.type === "showLiveChatActionPanelAction") {
-				// open poll
-				onStartPoll(live, chat);
-			}
-			else if (chat.type === "updateLiveChatPollAction") {
-				// update poll
-				onUpdatePoll(live, chat);
-			}
-			else if (chat.type === "closeLiveChatActionPanelAction") {
-				// close poll
-				onClosePoll(live, chat);
-			}
-			else if (chat.type === "modeChangeAction") {
-				// mode change
-				onModeChange(live, chat);
+					// if (chat.rawMessage?.some(run => (run as any).navigationEndpoint)) {
+					// 	writeDebugJson(live, `navigationEndpoint-${chat.id}`, chat);
+					// }
+					break;
+				// case "showPollPanelAction":
+				// 	onStartPoll(live, chat);
+				// 	break;
+				// case "updatePollAction":
+				// 	onUpdatePoll(live, chat);
+				// 	break;
+				// case "closePanelAction":
+				// 	onClosePoll(live, chat);
+				// 	break;
+				case "modeChangeAction":
+					onModeChange(live, chat);
+					break;
+				case "addViewerEngagementMessageAction":
+					writeDebugJson(live, `addViewerEngagementMessageAction-${chat.messageType}-${chat.id}`, chat);
+					if (chat.messageType === "poll") {
+						postPollDiscord(webhook, live, chat);
+					}
+					break;
 			}
 		}
 	}
 });
 
-masterchatManager.addListener("end", (metadata) => {
-	const live = cache.get<Video>(metadata.videoId);
+masterchatManager.addListener("end", (metadata, mc) => {
+	const live = cache.get<Video>(mc.videoId);
 	if (live && !live.actualEnd) {
 		updateVideoEnding(live, new Date());
 	}
-	stopChatRecord(metadata.videoId);
+	stopChatRecord(mc.videoId);
 });
 
-masterchatManager.addListener("error", (error, metadata) => {
+masterchatManager.addListener("error", (error, mc) => {
 	if (error instanceof MasterchatError) {
-		console.error(`[${metadata.videoId}] ${error.message}`);
+		console.error(`[${mc.videoId}] ${error.message}`);
 		// "disabled" => Live chat is disabled
 		// "membersOnly" => No permission (members-only)
 		// "private" => No permission (private video)
@@ -225,9 +206,9 @@ masterchatManager.addListener("error", (error, metadata) => {
 		// "unknown" => Unknown error
 	}
 	else {
-		console.error(`[${metadata.videoId}]`, error);
+		console.error(`[${mc.videoId}]`, error);
 	}
-	stopChatRecord(metadata.videoId, true);
+	stopChatRecord(mc.videoId, true);
 });
 
 //#endregion
@@ -308,61 +289,21 @@ function getEmbedColor(message: CustomChatItem) {
 
 //#region poll
 
-type YTLiveChatPollRenderer = Omit<UpdateLiveChatPollAction, "type">;
+function postPollDiscord(webhook: WebhookClient, live: Video, action: AddViewerEngagementMessageAction) {
+	if (!checkIsMarked(live.channelId)) return;
 
-interface PollInfo {
-	openTime: Date;
-	targetIds: string[];
-	pollRender: YTLiveChatPollRenderer;
-}
-
-const pollInfos: Map<string, PollInfo> = new Map();
-
-function onStartPoll(live: Video, action: ShowLiveChatActionPanelAction) {
-	const poll = action.contents.pollRenderer;
-	const pollInfo: PollInfo = {
-		openTime: new Date(),
-		targetIds: [live.videoId, action.contents.pollRenderer.liveChatPollId, action.id, action.targetId],
-		pollRender: poll,
-	};
-	pollInfos.set(poll.liveChatPollId, pollInfo);
-	return postPollDiscord(webhook, live, pollInfo, "open");
-}
-
-function onUpdatePoll(live: Video, poll: UpdateLiveChatPollAction) {
-	const pollInfo = pollInfos.get(poll.liveChatPollId);
-	if (pollInfo) {
-		pollInfo.pollRender = merge(pollInfo.pollRender, poll);
-		pollInfos.set(poll.liveChatPollId, pollInfo);
-	}
-}
-
-function onClosePoll(live: Video, action: CloseLiveChatActionPanelAction) {
-	const pollInfo = [...pollInfos.entries()].find(i => i[1].targetIds.includes(action.targetPanelId)) ??
-		[...pollInfos.entries()].find(i => i[1].targetIds.includes(live.videoId));
-	if (pollInfo) {
-		pollInfos.delete(pollInfo[0]);
-		return postPollDiscord(webhook, live, pollInfo[1], "close");
-	}
-}
-
-function postPollDiscord(webhook: WebhookClient, live: Video, pollInfo: PollInfo, action: "open" | "close") {
-	const poll = pollInfo.pollRender;
-	const isBeforeStream = !live.actualStart || live.actualStart > pollInfo.openTime;
-	const time = isBeforeStream ? 0 : Math.floor((pollInfo.openTime.getTime() - live.actualStart!.getTime()) / 1000);
+	const actionTime = action.timestamp ?? new Date();
+	const isBeforeStream = !live.actualStart || live.actualStart > actionTime;
+	const time = isBeforeStream ? 0 : Math.floor((actionTime.getTime() - live.actualStart!.getTime()) / 1000);
 
 	const message = new MessageEmbed();
 	message.setAuthor(live.channel.name, live.channel.avatarUrl, `https://www.youtube.com/channel/${live.channel.channelId}`);
-	message.setTitle(`${action === "open" ? "Opened poll" : "Closed poll"} • At ${secondsToHms(time)}`);
+	message.setTitle(`Poll • At ${secondsToHms(time)}`);
 	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
-	message.setDescription(`${runsToString(poll.header.pollHeaderRenderer.metadataText.runs)}
-**${runsToString(poll.header.pollHeaderRenderer.pollQuestion.runs)}**
-${poll.choices.map((choice, index) => {
-	return `${index + 1}. ${runsToString(choice.text.runs)}: ${choice.votePercentage?.simpleText ?? ""}`;
-}).join("\n")}`);
+	message.setDescription(action.message);
 	message.setFooter(live.title, live.channel.avatarUrl);
-	message.setTimestamp(pollInfo.openTime);
+	message.setTimestamp(actionTime);
 	return webhook.send(message);
 }
 
@@ -371,6 +312,8 @@ ${poll.choices.map((choice, index) => {
 //#region mode change
 
 function onModeChange(live: Video, chat: ModeChangeAction) {
+	if (!checkIsMarked(live.channelId)) return;
+
 	const now = new Date();
 	const isBeforeStream = !live.actualStart || live.actualStart > now;
 	const time = isBeforeStream ? 0 : Math.floor((now.getTime() - live.actualStart!.getTime()) / 1000);

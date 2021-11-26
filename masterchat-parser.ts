@@ -1,109 +1,12 @@
 import config from "config";
 import { Video } from "holodex.js";
-import { AddChatItemAction, AddMembershipItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, runsToString, SuperChat, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTRun, YTTextRun } from "masterchat";
+import { AddChatItemAction, AddMembershipItemAction, AddMembershipMilestoneItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, stringify, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTTextRun } from "masterchat";
 import { guessMessageAuthorType } from "./metrics";
-import { currencyToJpyAmount, getCurrencymapItem, secondsToHms } from "./utils";
+import { currencyToJpyAmount, secondsToHms } from "./utils";
 
 const channels = config.has("channels") ? config.get<string[]>("channels") : [];
 
-//#region super sticker action
-
-interface CustomAddSuperStickerItemAction extends Omit<AddSuperChatItemAction, "type" | "superchat"> {
-	type: "addSuperStickerItemAction";
-	superchat: Omit<SuperChat, "headerBackgroundColor" | "headerTextColor" | "bodyBackgroundColor" | "bodyTextColor">;
-	stickerPhoto: string;
-}
-
-export function parseSuperStickerItemAction(renderer: AddSuperStickerItemAction): CustomAddSuperStickerItemAction {
-	const { timestampUsec, authorExternalChannelId: authorChannelId } =
-		renderer;
-
-	const timestamp = new Date(parseInt(timestampUsec, 10) / 1000);
-
-	const authorPhoto =
-		renderer.authorPhoto.thumbnails[
-			renderer.authorPhoto.thumbnails.length - 1
-		].url;
-
-	const stickerPhoto =
-		renderer.sticker.thumbnails[
-			renderer.sticker.thumbnails.length - 1
-		].url;
-
-	const AMOUNT_REGEXP = /[\d.,]+/;
-
-	const input = renderer.purchaseAmountText.simpleText;
-	const amountString = AMOUNT_REGEXP.exec(input)![0].replace(/,/g, "");
-
-	const amount = parseFloat(amountString);
-	const currency = getCurrencymapItem(input.replace(AMOUNT_REGEXP, "").trim()).code;
-	const color =
-		SUPERCHAT_COLOR_MAP[renderer.backgroundColor.toString() as keyof typeof SUPERCHAT_COLOR_MAP];
-	const significance = SUPERCHAT_SIGNIFICANCE_MAP[color];
-
-	const raw: CustomAddSuperStickerItemAction = {
-		type: "addSuperStickerItemAction",
-		id: renderer.id,
-		timestamp,
-		timestampUsec,
-		rawMessage: [{ text: `[Sticker]:${renderer.sticker.accessibility.accessibilityData.label}:` }],
-		authorName: renderer.authorName?.simpleText,
-		authorPhoto,
-		authorChannelId,
-		superchat: {
-			amount,
-			currency,
-			color,
-			significance,
-		},
-		stickerPhoto: stickerPhoto.startsWith("http") ? stickerPhoto : `https:${stickerPhoto}`,
-	};
-	return raw;
-}
-
-//#endregion
-
-//#region membership item action
-
-interface CustomAddMembershipItemAction extends Omit<AddChatItemAction, "type" | "isOwner" | "isModerator" | "isVerified" | "rawMessage"> {
-	type: "addMembershipItemAction" | "addMembershipMilestoneItemAction";
-	rawMessage?: YTRun[];
-	isSponsor: true;
-}
-
-export function parseMembershipItemAction(renderer: AddMembershipItemAction) {
-	const { timestampUsec, authorExternalChannelId: authorChannelId } =
-		renderer;
-
-	const timestamp = new Date(parseInt(timestampUsec, 10) / 1000);
-
-	const authorPhoto =
-		renderer.authorPhoto.thumbnails[
-			renderer.authorPhoto.thumbnails.length - 1
-		].url;
-
-	// new member: { headerSubtext: "[runs] New member" }
-	// member milestone: { message?: "[runs] Message", empty?: true, headerPrimaryText: "[runs] Member for x months", headerSubtext: "[simpleText] Member title" }
-	const isMilestone = "empty" in renderer || "message" in renderer;
-
-	const raw: CustomAddMembershipItemAction = {
-		type: isMilestone ? "addMembershipMilestoneItemAction" : "addMembershipItemAction",
-		id: renderer.id,
-		timestamp,
-		timestampUsec,
-		rawMessage: isMilestone ? (renderer as any).message?.runs : renderer.headerSubtext?.runs,
-		authorName: renderer.authorName.simpleText,
-		authorPhoto,
-		authorChannelId,
-		contextMenuEndpointParams: renderer.contextMenuEndpoint.clickTrackingParams,
-		isSponsor: true,
-	};
-	return raw;
-}
-
-//#endregion
-
-type TextedChatItem = AddChatItemAction | AddSuperChatItemAction | CustomAddSuperStickerItemAction | CustomAddMembershipItemAction;
+type TextedChatItem = AddChatItemAction | AddSuperChatItemAction | AddSuperStickerItemAction | AddMembershipItemAction | AddMembershipMilestoneItemAction;
 
 export interface CustomChatItem extends Omit<TextedChatItem, ""> {
 	isOwner: boolean;
@@ -113,6 +16,7 @@ export interface CustomChatItem extends Omit<TextedChatItem, ""> {
 	isMarked: boolean;
 	authorTags: string[];
 	message: string;
+	scColor: string;
 	scTier: SuperChatSignificance | 0;
 	scAmount: number;
 	scCurrency: string;
@@ -146,23 +50,25 @@ export const runsToStringOptions = {
 	}
 };
 
-export async function parseMessage(live: Video, message: TextedChatItem) {
-	const isBeforeStream = !live.actualStart || live.actualStart > message.timestamp;
-	const time = isBeforeStream ? 0 : Math.floor((message.timestamp.getTime() - live.actualStart!.getTime()) / 1000);
+export async function parseMessage(live: Video, action: TextedChatItem) {
+	const isBeforeStream = !live.actualStart || live.actualStart > action.timestamp;
+	const time = isBeforeStream ? 0 : Math.floor((action.timestamp.getTime() - live.actualStart!.getTime()) / 1000);
 	const timeCode = secondsToHms(time);
+	const guessAuthorType = guessMessageAuthorType(live.videoId, action.authorChannelId);
 
 	const chatItem: CustomChatItem = {
-		...(message.type === "addChatItemAction" ? {
-			...message,
-			isSponsor: !!message.membership,
-		} : guessMessageAuthorType(live.videoId, message.authorChannelId)),
-		...message,
-		isMarked: !!(channels.length && channels.includes(message.authorChannelId)),
+		...action,
+		isOwner: "isOwner" in action ? action.isOwner : guessAuthorType.isOwner,
+		isModerator: "isModerator" in action ? action.isModerator : guessAuthorType.isModerator,
+		isVerified: "isVerified" in action ? action.isVerified : guessAuthorType.isVerified,
+		isSponsor: "membership" in action ? !!action.membership : guessAuthorType.isSponsor,
+		isMarked: checkIsMarked(action.authorChannelId),
 		authorTags: [],
-		message: message.rawMessage ? runsToString(message.rawMessage, runsToStringOptions) : "",
-		scTier: 0,
-		scAmount: 0,
-		scCurrency: "",
+		message: "message" in action && action.message ? stringify(action.message, runsToStringOptions) : "",
+		scColor: "color" in action ? action.color : "",
+		scTier: "significance" in action ? action.significance : 0,
+		scAmount: "amount" in action ? action.amount : 0,
+		scCurrency: "currency" in action ? action.currency : "",
 		scJpyAmount: 0,
 		isBeforeStream,
 		time,
@@ -170,19 +76,32 @@ export async function parseMessage(live: Video, message: TextedChatItem) {
 	};
 	chatItem.authorTags = getAuthorTypeTags(chatItem);
 
-	if (message.type === "addSuperChatItemAction" || message.type === "addSuperStickerItemAction") {
-		chatItem.scTier = message.superchat.significance;
-		chatItem.scAmount = message.superchat.amount;
-		chatItem.scCurrency = message.superchat.currency;
-		chatItem.message += ` (${chatItem.scCurrency} ${chatItem.scAmount}, ${message.superchat.color}, tier ${message.superchat.significance})`;
+	if (chatItem.scAmount && chatItem.scCurrency) {
+		if (!chatItem.scTier) {
+			["moneyChipBackgroundColor", "moneyChipTextColor", "backgroundColor", "authorNameTextColor"].forEach(key => {
+				if (key in action) {
+					const color = SUPERCHAT_COLOR_MAP[(action as any)[key].toString() as keyof typeof SUPERCHAT_COLOR_MAP];
+					if (color) {
+						const significance = SUPERCHAT_SIGNIFICANCE_MAP[color];
+						chatItem.scColor = color;
+						chatItem.scTier = significance;
+					}
+				}
+			});
+		}
+		chatItem.message += ` (${chatItem.scCurrency} ${chatItem.scAmount}, ${chatItem.scColor}, tier ${chatItem.scTier})`;
 
 		const jpy = await currencyToJpyAmount(chatItem.scAmount, chatItem.scCurrency);
 		chatItem.scJpyAmount = jpy.amount;
 	}
 
-	if (message.type === "addSuperStickerItemAction") {
-		chatItem.image = message.stickerPhoto;
+	if (action.type === "addSuperStickerItemAction") {
+		chatItem.image = action.stickerUrl;
 	}
 
 	return chatItem;
+}
+
+export function checkIsMarked(channelId: string) {
+	return !!(channels.length && channels.includes(channelId));
 }

@@ -2,11 +2,11 @@ import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
 import * as fs from "fs/promises";
 import { ExtraData, HolodexApiClient, Video, VideoStatus, VideoType } from "holodex.js";
-import { AddViewerEngagementMessageAction, MasterchatError, ModeChangeAction, StreamPool } from "masterchat";
+import { AddViewerEngagementMessageAction, MasterchatError, ModeChangeAction, StreamPool, stringify } from "masterchat";
 import moment from "moment";
 import path from "path";
 import { cache } from "./cache";
-import { checkIsMarked, CustomChatItem, parseMessage } from "./masterchat-parser";
+import { checkIsMarked, CustomChatItem, parseMessage, runsToStringOptions } from "./masterchat-parser";
 import { addMessageMetrics, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, initVideoMetrics, restoreAllMetrics, updateVideoEnding, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
 
@@ -301,7 +301,7 @@ function postPollDiscord(webhook: WebhookClient, live: Video, action: AddViewerE
 	message.setTitle(`Poll • At ${secondsToHms(time)}`);
 	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
-	message.setDescription(action.message);
+	message.setDescription(stringify(action.message, runsToStringOptions));
 	message.setFooter(live.title, live.channel.avatarUrl);
 	message.setTimestamp(actionTime);
 	return webhook.send(message);

@@ -27,6 +27,7 @@ export async function fetchChannel() {
 	const t = moment();
 	const lives = await holoapi.getLiveVideos({
 		org: "Hololive",
+		max_upcoming_hours: 20000,
 	});
 	const ended = await holoapi.getVideos({
 		org: "Hololive",

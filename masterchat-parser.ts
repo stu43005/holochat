@@ -1,3 +1,4 @@
+import { bold, italic } from "@discordjs/builders";
 import config from "config";
 import { Video } from "holodex.js";
 import { AddChatItemAction, AddMembershipItemAction, AddMembershipMilestoneItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, stringify, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTTextRun } from "masterchat";
@@ -40,13 +41,20 @@ function getAuthorTypeTags(chatItem: CustomChatItem) {
 
 export const runsToStringOptions = {
 	textHandler: (run: YTTextRun): string => {
+		let text = run.text;
 		if (run.navigationEndpoint) {
 			const url = endpointToUrl(run.navigationEndpoint);
 			if (url) {
-				return `[${run.text}](${url})`;
+				text = `[${text}](${url})`;
 			}
 		}
-		return run.text;
+		if (run.bold) {
+			text = bold(text);
+		}
+		if (run.italics) {
+			text = italic(text);
+		}
+		return text;
 	}
 };
 

@@ -2,7 +2,7 @@ import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
 import * as fs from "fs/promises";
 import { ExtraData, HolodexApiClient, Video, VideoStatus, VideoType } from "holodex.js";
-import { AddViewerEngagementMessageAction, MasterchatError, ModeChangeAction, StreamPool, stringify } from "masterchat";
+import { AddPollResultAction, MasterchatError, ModeChangeAction, StreamPool, stringify } from "masterchat";
 import moment from "moment";
 import path from "path";
 import { cache } from "./cache";
@@ -163,6 +163,10 @@ masterchatManager.addListener("actions", (actions, mc) => {
 					// 	writeDebugJson(live, `navigationEndpoint-${chat.id}`, chat);
 					// }
 					break;
+				case "membershipGiftPurchaseAction":
+				case "membershipGiftRedemptionAction":
+					break;
+
 				// case "showPollPanelAction":
 				// 	onStartPoll(live, chat);
 				// 	break;
@@ -175,11 +179,9 @@ masterchatManager.addListener("actions", (actions, mc) => {
 				case "modeChangeAction":
 					onModeChange(live, chat);
 					break;
-				case "addViewerEngagementMessageAction":
-					writeDebugJson(live, `addViewerEngagementMessageAction-${chat.messageType}-${chat.id}`, chat);
-					if (chat.messageType === "poll") {
-						postPollDiscord(webhook, live, chat);
-					}
+				case "addPollResultAction":
+					writeDebugJson(live, `addPollResultAction-${chat.id}`, chat);
+					postPollDiscord(webhook, live, chat);
 					break;
 			}
 		}
@@ -290,19 +292,20 @@ function getEmbedColor(message: CustomChatItem) {
 
 //#region poll
 
-function postPollDiscord(webhook: WebhookClient, live: Video, action: AddViewerEngagementMessageAction) {
+function postPollDiscord(webhook: WebhookClient, live: Video, action: AddPollResultAction) {
 	if (!checkIsMarked(live.channelId)) return;
 
-	const actionTime = action.timestamp ?? new Date();
+	const actionTime = new Date();
 	const isBeforeStream = !live.actualStart || live.actualStart > actionTime;
 	const time = isBeforeStream ? 0 : Math.floor((actionTime.getTime() - live.actualStart!.getTime()) / 1000);
 
 	const message = new MessageEmbed();
 	message.setAuthor(live.channel.name, live.channel.avatarUrl, `https://www.youtube.com/channel/${live.channel.channelId}`);
-	message.setTitle(`Poll • At ${secondsToHms(time)}`);
+	message.setTitle(`Poll • At ${secondsToHms(time)} • ${action.total} votes`);
 	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
-	message.setDescription(stringify(action.message, runsToStringOptions));
+	message.setDescription(`${action.question ? stringify(action.question, runsToStringOptions) : ""}
+${action.choices.map(choice => `${choice.text} (${choice.votePercentage})`).join("\n")}`);
 	message.setFooter(live.title, live.channel.avatarUrl);
 	message.setTimestamp(actionTime);
 	return webhook.send(message);

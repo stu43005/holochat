@@ -305,7 +305,7 @@ function postPollDiscord(webhook: WebhookClient, live: Video, action: AddPollRes
 	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
 	message.setDescription(`${action.question ? stringify(action.question, runsToStringOptions) : ""}
-${action.choices.map(choice => `${choice.text} (${choice.votePercentage})`).join("\n")}`);
+${action.choices.map(choice => `${stringify(choice.text, runsToStringOptions)} (${choice.votePercentage})`).join("\n")}`);
 	message.setFooter(live.title, live.channel.avatarUrl);
 	message.setTimestamp(actionTime);
 	return webhook.send(message);

@@ -8,6 +8,7 @@ config/local*
 
 # typescript build output
 dist/
+*.js
 
 # Logs
 logs

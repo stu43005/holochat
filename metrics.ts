@@ -1,6 +1,6 @@
 import { BloomFilter } from "bloom-filters";
 import fs from "fs";
-import type { Video } from "holodex.js";
+import type { Video } from "holodex.js" assert { "resolution-mode": "import" };
 import path from "path";
 import { Counter, Gauge, register } from "prom-client";
 import { cache } from "./cache";

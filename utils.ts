@@ -1,7 +1,9 @@
 import currencyConverter from "currency-converter";
 import config from "config";
-import currencymap from "./currencymap.json";
+import fs from "fs";
+import type { CurrencyMap, CurrencyMapEntry } from "./currencymap";
 
+const currencymap = JSON.parse(fs.readFileSync("./currencymap.json", { encoding: "utf8" })) as CurrencyMap;
 const cc = currencyConverter({
 	CLIENTKEY: config.get<string>("open_exchange_rates_app_id"),
 });
@@ -10,8 +12,8 @@ const amountRegex = /^(?<currency>(?:[A-Z]{1,2})?\$|(?:[A-Z]{2})?¥|£|€|₹|�
 
 export function parseAmountDisplayString(amountDisplayString: string) {
 	const match = amountDisplayString.match(amountRegex);
-	const amount = parseFloat(match?.groups?.amount?.replace(/,/g, "") ?? "");
-	const currency = match?.groups?.currency;
+	const amount = parseFloat(match?.groups?.['amount']?.replace(/,/g, "") ?? "");
+	const currency = match?.groups?.['currency'];
 	if (isNaN(amount) || !currency) {
 		console.error(`Cannot parse amount: "${amountDisplayString}"`);
 		return;
@@ -22,13 +24,19 @@ export function parseAmountDisplayString(amountDisplayString: string) {
 	};
 }
 
-export function getCurrencymapItem(currency: string): typeof currencymap.JPY {
+export function getCurrencymapItem(currency: string): CurrencyMapEntry {
 	let currencymapEntry: undefined | typeof currencymap.JPY;
 	for (const key of ["code", "symbol", "symbol_native"] as const) {
 		currencymapEntry = Object.values(currencymap).find(entry => entry[key] === currency);
 		if (currencymapEntry) break;
 	}
-	return currencymapEntry ?? currencymap.JPY;
+	return currencymapEntry ?? {
+		"symbol": "¥",
+		"code": "JPY",
+		"symbol_native": "￥",
+		"decimal_digits": 0,
+		"rounding": 0.0
+	};
 }
 
 export async function currencyToJpyAmount(amount: number, currency: string) {

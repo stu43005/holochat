@@ -1,7 +1,7 @@
 import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
 import * as fs from "fs/promises";
-import { ExtraData, HolodexApiClient, Video, VideoStatus, VideoType } from "holodex.js";
+import type { Video } from "holodex.js" assert { "resolution-mode": "import" };
 import { AddPollResultAction, MasterchatError, ModeChangeAction, StreamPool, stringify } from "masterchat";
 import moment from "moment";
 import path from "path";
@@ -12,12 +12,15 @@ import { secondsToHms } from "./utils";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
-const holoapi = new HolodexApiClient({
-	apiKey: config.get<string>("holodex_apikey"),
-});
 const masterchatManager = new StreamPool({ mode: "live" });
-const webhook = new WebhookClient(config.get<string>("discord_id"), config.get<string>("discord_token"));
-const webhook2 = config.has("discord_id_full") ? new WebhookClient(config.get<string>("discord_id_full"), config.get<string>("discord_token_full")) : null;
+const webhook = new WebhookClient({
+	id: config.get<string>("discord_id"), 
+	token: config.get<string>("discord_token"),
+});
+const webhook2 = config.has("discord_id_full") ? new WebhookClient({
+	id: config.get<string>("discord_id_full"),
+	token: config.get<string>("discord_token_full"),
+}) : null;
 const extraChannels = config.has("extraChannels") ? config.get<string[]>("extraChannels") : [];
 
 // const messageFilters: Record<string, BloomFilter> = {};
@@ -25,6 +28,10 @@ let inited = false;
 
 export async function fetchChannel() {
 	const t = moment();
+	const { HolodexApiClient, VideoStatus, VideoType, ExtraData } = await import("holodex.js");
+	const holoapi = new HolodexApiClient({
+		apiKey: config.get<string>("holodex_apikey"),
+	});
 	const lives = await holoapi.getLiveVideos({
 		org: "Hololive",
 		max_upcoming_hours: 20000,
@@ -243,17 +250,24 @@ async function onChatItem(live: Video, chatItem: CustomChatItem) {
 
 function postDiscord(webhook: WebhookClient, live: Video, chatItem: CustomChatItem) {
 	const message = new MessageEmbed();
-	message.setAuthor(chatItem.authorName, chatItem.authorPhoto, `https://www.youtube.com/channel/${chatItem.authorChannelId}`);
+	if (chatItem.authorName) message.setAuthor({
+		name: chatItem.authorName,
+		iconURL: chatItem.authorPhoto,
+		url: `https://www.youtube.com/channel/${chatItem.authorChannelId}`,
+	});
 	message.setTitle(`To ${live.channel.name} • At ${secondsToHms(chatItem.time)}`);
 	message.setURL(`https://youtu.be/${live.videoId}?t=${chatItem.time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
 	message.setDescription(chatItem.message);
-	message.setFooter(live.title, live.channel.avatarUrl);
+	message.setFooter({
+		text: live.title,
+		iconURL: live.channel.avatarUrl,
+	});
 	message.setTimestamp(chatItem.timestamp);
 	if (chatItem.image) message.setImage(chatItem.image);
 	const color = getEmbedColor(chatItem);
 	if (color) message.setColor(color);
-	return webhook.send(message);
+	return webhook.send({ embeds: [message] });
 }
 
 function getEmbedColor(message: CustomChatItem) {
@@ -300,15 +314,22 @@ function postPollDiscord(webhook: WebhookClient, live: Video, action: AddPollRes
 	const time = isBeforeStream ? 0 : Math.floor((actionTime.getTime() - live.actualStart!.getTime()) / 1000);
 
 	const message = new MessageEmbed();
-	message.setAuthor(live.channel.name, live.channel.avatarUrl, `https://www.youtube.com/channel/${live.channel.channelId}`);
+	message.setAuthor({
+		name: live.channel.name,
+		iconURL: live.channel.avatarUrl,
+		url: `https://www.youtube.com/channel/${live.channel.channelId}`,
+	});
 	message.setTitle(`Poll • At ${secondsToHms(time)} • ${action.total} votes`);
 	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
 	message.setDescription(`${action.question ? stringify(action.question, runsToStringOptions) : ""}
 ${action.choices.map(choice => `${stringify(choice.text, runsToStringOptions)} (${choice.votePercentage})`).join("\n")}`);
-	message.setFooter(live.title, live.channel.avatarUrl);
+	message.setFooter({
+		text: live.title,
+		iconURL: live.channel.avatarUrl,
+	});
 	message.setTimestamp(actionTime);
-	return webhook.send(message);
+	return webhook.send({ embeds: [message] });
 }
 
 //#endregion
@@ -323,16 +344,23 @@ function onModeChange(live: Video, chat: ModeChangeAction) {
 	const time = isBeforeStream ? 0 : Math.floor((now.getTime() - live.actualStart!.getTime()) / 1000);
 
 	const message = new MessageEmbed();
-	message.setAuthor(live.channel.name, live.channel.avatarUrl, `https://www.youtube.com/channel/${live.channel.channelId}`);
+	message.setAuthor({
+		name: live.channel.name,
+		iconURL: live.channel.avatarUrl,
+		url: `https://www.youtube.com/channel/${live.channel.channelId}`,
+	});
 	message.setTitle(`Mode changed • At ${secondsToHms(time)}`);
 	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
 	message.setDescription(chat.description);
 	message.addField("Enabled", `${chat.enabled}`, true);
 	message.addField("Mode", `${chat.mode}`, true);
-	message.setFooter(live.title, live.channel.avatarUrl);
+	message.setFooter({
+		text: live.title,
+		iconURL: live.channel.avatarUrl,
+	});
 	message.setTimestamp(now);
-	return webhook.send(message);
+	return webhook.send({ embeds: [message] });
 }
 
 //#endregion

@@ -7,7 +7,7 @@ collectDefaultMetrics();
 // process event handle
 process
 	.on("warning", console.warn)
-	.on("unhandledRejection", (error) => {
+	.on("unhandledRejection", (error: any) => {
 		console.error("Unhandled Promise Rejection:", error?.toString());
 	})
 	.on("uncaughtException", (error) => {

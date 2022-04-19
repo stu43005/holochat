@@ -1,4 +1,4 @@
-import { bold, italic } from "@discordjs/builders";
+import { bold, hyperlink, italic } from "@discordjs/builders";
 import config from "config";
 import type { Video } from "holodex.js";
 import { AddChatItemAction, AddMembershipItemAction, AddMembershipMilestoneItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, stringify, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTTextRun } from "masterchat";
@@ -45,7 +45,7 @@ export const runsToStringOptions = {
 		if (run.navigationEndpoint) {
 			const url = endpointToUrl(run.navigationEndpoint);
 			if (url) {
-				text = `[${text}](${url})`;
+				text = hyperlink(text, url);
 			}
 		}
 		if (run.bold) {

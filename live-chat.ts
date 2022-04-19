@@ -1,7 +1,8 @@
 import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
 import * as fs from "fs/promises";
-import type { Video } from "holodex.js" assert { "resolution-mode": "import" };
+import type { Video } from "holodex.js";
+import { HolodexApiClient, VideoStatus, VideoType, ExtraData } from "holodex.js";
 import { AddPollResultAction, MasterchatError, ModeChangeAction, StreamPool, stringify } from "masterchat";
 import moment from "moment";
 import path from "path";
@@ -12,9 +13,12 @@ import { secondsToHms } from "./utils";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
+const holoapi = new HolodexApiClient({
+	apiKey: config.get<string>("holodex_apikey"),
+});
 const masterchatManager = new StreamPool({ mode: "live" });
 const webhook = new WebhookClient({
-	id: config.get<string>("discord_id"), 
+	id: config.get<string>("discord_id"),
 	token: config.get<string>("discord_token"),
 });
 const webhook2 = config.has("discord_id_full") ? new WebhookClient({
@@ -28,10 +32,6 @@ let inited = false;
 
 export async function fetchChannel() {
 	const t = moment();
-	const { HolodexApiClient, VideoStatus, VideoType, ExtraData } = await import("holodex.js");
-	const holoapi = new HolodexApiClient({
-		apiKey: config.get<string>("holodex_apikey"),
-	});
 	const lives = await holoapi.getLiveVideos({
 		org: "Hololive",
 		max_upcoming_hours: 20000,
@@ -250,11 +250,13 @@ async function onChatItem(live: Video, chatItem: CustomChatItem) {
 
 function postDiscord(webhook: WebhookClient, live: Video, chatItem: CustomChatItem) {
 	const message = new MessageEmbed();
-	if (chatItem.authorName) message.setAuthor({
-		name: chatItem.authorName,
-		iconURL: chatItem.authorPhoto,
-		url: `https://www.youtube.com/channel/${chatItem.authorChannelId}`,
-	});
+	if (chatItem.authorName) {
+		message.setAuthor({
+			name: chatItem.authorName,
+			iconURL: chatItem.authorPhoto,
+			url: `https://www.youtube.com/channel/${chatItem.authorChannelId}`,
+		});
+	}
 	message.setTitle(`To ${live.channel.name} • At ${secondsToHms(chatItem.time)}`);
 	message.setURL(`https://youtu.be/${live.videoId}?t=${chatItem.time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);

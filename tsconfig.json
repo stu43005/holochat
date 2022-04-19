@@ -5,7 +5,6 @@
 			"./node_modules/@types",
 			"./typings",
 		],
-		"moduleResolution": "nodenext"
 	},
 	"exclude": [
 		"node_modules",

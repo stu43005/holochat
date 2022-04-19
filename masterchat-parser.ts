@@ -1,6 +1,6 @@
 import { bold, italic } from "@discordjs/builders";
 import config from "config";
-import type { Video } from "holodex.js" assert { "resolution-mode": "import" };
+import type { Video } from "holodex.js";
 import { AddChatItemAction, AddMembershipItemAction, AddMembershipMilestoneItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, stringify, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTTextRun } from "masterchat";
 import { guessMessageAuthorType } from "./metrics";
 import { currencyToJpyAmount, secondsToHms } from "./utils";

@@ -1,6 +1,7 @@
-import currencyConverter from "currency-converter";
 import config from "config";
+import currencyConverter from "currency-converter";
 import fs from "fs";
+import moment from "moment";
 import type { CurrencyMap, CurrencyMapEntry } from "./currencymap";
 
 const currencymap = JSON.parse(fs.readFileSync("./currencymap.json", { encoding: "utf8" })) as CurrencyMap;
@@ -12,8 +13,8 @@ const amountRegex = /^(?<currency>(?:[A-Z]{1,2})?\$|(?:[A-Z]{2})?¥|£|€|₹|�
 
 export function parseAmountDisplayString(amountDisplayString: string) {
 	const match = amountDisplayString.match(amountRegex);
-	const amount = parseFloat(match?.groups?.['amount']?.replace(/,/g, "") ?? "");
-	const currency = match?.groups?.['currency'];
+	const amount = parseFloat(match?.groups?.amount?.replace(/,/g, "") ?? "");
+	const currency = match?.groups?.currency;
 	if (isNaN(amount) || !currency) {
 		console.error(`Cannot parse amount: "${amountDisplayString}"`);
 		return;
@@ -31,16 +32,38 @@ export function getCurrencymapItem(currency: string): CurrencyMapEntry {
 		if (currencymapEntry) break;
 	}
 	return currencymapEntry ?? {
-		"symbol": "¥",
-		"code": "JPY",
-		"symbol_native": "￥",
-		"decimal_digits": 0,
-		"rounding": 0.0
+		symbol: "¥",
+		code: "JPY",
+		symbol_native: "￥",
+		decimal_digits: 0,
+		rounding: 0.0
 	};
+}
+
+let ccUpdateTime = 0;
+function isOutdate() {
+	if (moment().isSameOrAfter(moment(ccUpdateTime).add(1, "hour"))) {
+		ccUpdateTime = Date.now();
+		return true;
+	}
+	return false;
 }
 
 export async function currencyToJpyAmount(amount: number, currency: string) {
 	const currencymapEntry = getCurrencymapItem(currency);
+	const live = isOutdate();
+	if (live) {
+		try {
+			const jpyAmount = await cc.convert(amount, currencymapEntry.code, "JPY", true);
+			return {
+				amount: jpyAmount.amount,
+				currency: "¥",
+			};
+		}
+		catch (error) {
+			console.error(error);
+		}
+	}
 	try {
 		const jpyAmount = await cc.convert(amount, currencymapEntry.code, "JPY");
 		return {

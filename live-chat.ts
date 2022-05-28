@@ -3,7 +3,7 @@ import { MessageEmbed, WebhookClient } from "discord.js";
 import * as fs from "fs/promises";
 import type { Video } from "holodex.js";
 import { HolodexApiClient, VideoStatus, VideoType, ExtraData } from "holodex.js";
-import { AddPollResultAction, MasterchatError, ModeChangeAction, StreamPool, stringify } from "masterchat";
+import { AddPollResultAction, AddRedirectBannerAction, MasterchatError, ModeChangeAction, StreamPool, stringify } from "masterchat";
 import moment from "moment";
 import path from "path";
 import { cache } from "./cache";
@@ -174,21 +174,15 @@ masterchatManager.addListener("actions", (actions, mc) => {
 				case "membershipGiftRedemptionAction":
 					break;
 
-				// case "showPollPanelAction":
-				// 	onStartPoll(live, chat);
-				// 	break;
-				// case "updatePollAction":
-				// 	onUpdatePoll(live, chat);
-				// 	break;
-				// case "closePanelAction":
-				// 	onClosePoll(live, chat);
-				// 	break;
 				case "modeChangeAction":
 					onModeChange(live, chat);
 					break;
 				case "addPollResultAction":
-					writeDebugJson(live, `addPollResultAction-${chat.id}`, chat);
-					postPollDiscord(webhook, live, chat);
+					// writeDebugJson(live, `addPollResultAction-${chat.id}`, chat);
+					onPollResult(live, chat);
+					break;
+				case "addRedirectBannerAction":
+					onRaidIncoming(live, chat);
 					break;
 			}
 		}
@@ -308,7 +302,7 @@ function getEmbedColor(message: CustomChatItem) {
 
 //#region poll
 
-function postPollDiscord(webhook: WebhookClient, live: Video, action: AddPollResultAction) {
+function onPollResult(live: Video, action: AddPollResultAction) {
 	if (!checkIsMarked(live.channelId)) return;
 
 	const actionTime = new Date();
@@ -357,6 +351,34 @@ function onModeChange(live: Video, chat: ModeChangeAction) {
 	message.setDescription(chat.description);
 	message.addField("Enabled", `${chat.enabled}`, true);
 	message.addField("Mode", `${chat.mode}`, true);
+	message.setFooter({
+		text: live.title,
+		iconURL: live.channel.avatarUrl,
+	});
+	message.setTimestamp(now);
+	return webhook.send({ embeds: [message] });
+}
+
+//#endregion
+
+//#region raid event notifications
+
+function onRaidIncoming(live: Video, chat: AddRedirectBannerAction) {
+	if (!checkIsMarked(live.channelId)) return;
+
+	const now = new Date();
+	const isBeforeStream = !live.actualStart || live.actualStart > now;
+	const time = isBeforeStream ? 0 : Math.floor((now.getTime() - live.actualStart!.getTime()) / 1000);
+
+	const message = new MessageEmbed();
+	message.setAuthor({
+		name: chat.authorName,
+		iconURL: chat.authorPhoto,
+	});
+	message.setTitle(`Raid Event • At ${secondsToHms(time)}`);
+	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
+	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
+	message.setDescription(`${chat.authorName} and their viewers just joined. Say hello!`);
 	message.setFooter({
 		text: live.title,
 		iconURL: live.channel.avatarUrl,

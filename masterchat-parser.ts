@@ -1,13 +1,13 @@
 import { bold, hyperlink, italic } from "@discordjs/builders";
 import config from "config";
 import type { Video } from "holodex.js";
-import { AddChatItemAction, AddMembershipItemAction, AddMembershipMilestoneItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, stringify, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTTextRun } from "masterchat";
+import { AddChatItemAction, AddMembershipItemAction, AddMembershipMilestoneItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, MembershipGiftPurchaseAction, MembershipGiftRedemptionAction, stringify, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTTextRun } from "masterchat";
 import { guessMessageAuthorType } from "./metrics";
 import { currencyToJpyAmount, secondsToHms } from "./utils";
 
 const channels = config.has("channels") ? config.get<string[]>("channels") : [];
 
-type TextedChatItem = AddChatItemAction | AddSuperChatItemAction | AddSuperStickerItemAction | AddMembershipItemAction | AddMembershipMilestoneItemAction;
+type TextedChatItem = AddChatItemAction | AddSuperChatItemAction | AddSuperStickerItemAction | AddMembershipItemAction | AddMembershipMilestoneItemAction | MembershipGiftPurchaseAction | MembershipGiftRedemptionAction;
 
 export interface CustomChatItem extends Omit<TextedChatItem, ""> {
 	isOwner: boolean;
@@ -58,6 +58,22 @@ export const runsToStringOptions = {
 	}
 };
 
+function getMessage(action: TextedChatItem): string {
+	let message = "message" in action && action.message ? stringify(action.message, runsToStringOptions) : "";
+	switch (action.type) {
+		case "addMembershipItemAction":
+			return action.level ? `歡迎加入 ${action.level}` : "新會員";
+		case "addMembershipMilestoneItemAction":
+			message += ` (里程碑訊息)`;
+			break;
+		case "membershipGiftPurchaseAction":
+			return `送出了 ${action.amount} 個「${action.channelName}」的會籍`;
+		case "membershipGiftRedemptionAction":
+			return `獲得了 ${action.senderName} 送出的會籍`;
+	}
+	return message;
+}
+
 export async function parseMessage(live: Video, action: TextedChatItem) {
 	const isBeforeStream = !live.actualStart || live.actualStart > action.timestamp;
 	const time = isBeforeStream ? 0 : Math.floor((action.timestamp.getTime() - live.actualStart!.getTime()) / 1000);
@@ -72,7 +88,7 @@ export async function parseMessage(live: Video, action: TextedChatItem) {
 		isSponsor: "membership" in action ? !!action.membership : guessAuthorType.isSponsor,
 		isMarked: checkIsMarked(action.authorChannelId),
 		authorTags: [],
-		message: "message" in action && action.message ? stringify(action.message, runsToStringOptions) : "",
+		message: getMessage(action),
 		scColor: "color" in action ? action.color : "",
 		scTier: "significance" in action ? action.significance : 0,
 		scAmount: "amount" in action ? action.amount : 0,

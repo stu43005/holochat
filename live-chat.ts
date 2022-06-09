@@ -163,6 +163,7 @@ masterchatManager.addListener("actions", (actions, mc) => {
 				case "addSuperStickerItemAction":
 				case "addMembershipItemAction":
 				case "addMembershipMilestoneItemAction":
+				case "membershipGiftRedemptionAction":
 					parseMessage(live, chat)
 						.then(chatItem => onChatItem(live, chatItem));
 
@@ -170,8 +171,8 @@ masterchatManager.addListener("actions", (actions, mc) => {
 					// 	writeDebugJson(live, `navigationEndpoint-${chat.id}`, chat);
 					// }
 					break;
+
 				case "membershipGiftPurchaseAction":
-				case "membershipGiftRedemptionAction":
 					break;
 
 				case "modeChangeAction":
@@ -228,6 +229,9 @@ async function onChatItem(live: Video, chatItem: CustomChatItem) {
 		/^[[(]?(?:cht?|cn|tw|zh|中(?:譯|文)?(?:CHT)?)[\|\]): -]/i.test(chatItem.message)
 		|| chatItem.type === "addSuperChatItemAction"
 		|| chatItem.type === "addSuperStickerItemAction"
+		|| chatItem.type === "addMembershipItemAction"
+		|| chatItem.type === "addMembershipMilestoneItemAction"
+		|| chatItem.type === "membershipGiftRedemptionAction"
 		|| isImportant
 	) {
 		if (webhook2) {
@@ -273,10 +277,12 @@ function getEmbedColor(message: CustomChatItem) {
 	if (message.isModerator) {
 		return 0x5e84f1; // 板手
 	}
-	if (message.type === "addMembershipItemAction") {
-		return 0x0f9d58; // 深綠
-	}
-	if (message.type === "addMembershipMilestoneItemAction") {
+	if (
+		message.type === "addMembershipItemAction" ||
+		message.type === "addMembershipMilestoneItemAction" ||
+		message.type === "membershipGiftPurchaseAction" ||
+		message.type === "membershipGiftRedemptionAction"
+	) {
 		return 0x0f9d58; // 深綠
 	}
 	switch (message.scTier) {

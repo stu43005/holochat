@@ -20,6 +20,7 @@ interface VideoLabel {
 const enum MessageType {
 	Milestone = "milestone",
 	NewSponsor = "newSponsor",
+	MembershipGift = "membershipGift",
 	SuperChat = "superChat",
 	SuperSticker = "superSticker",
 	TextMessage = "textMessage",
@@ -191,6 +192,8 @@ function getMessageType(message: CustomChatItem) {
 	switch (message.type) {
 		case "addMembershipItemAction":
 			return MessageType.NewSponsor;
+		case "membershipGiftRedemptionAction":
+			return MessageType.MembershipGift;
 		case "addMembershipMilestoneItemAction":
 			return MessageType.Milestone;
 		case "addSuperChatItemAction":

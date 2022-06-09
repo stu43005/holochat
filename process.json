@@ -1,0 +1,17 @@
+{
+	"apps": [
+		{
+			"name": "holochat",
+			"script": "index.ts",
+			"node_args": [
+				"-r",
+				"ts-node/register"
+			],
+			"restart_delay": 10000,
+			"env": {
+				"NODE_ENV": "development",
+				"DEBUG": "masterchat"
+			}
+		}
+	]
+}

@@ -21,6 +21,7 @@ const enum MessageType {
 	Milestone = "milestone",
 	NewSponsor = "newSponsor",
 	MembershipGift = "membershipGift",
+	MembershipGiftPurchase = "membershipGiftPurchase",
 	SuperChat = "superChat",
 	SuperSticker = "superSticker",
 	TextMessage = "textMessage",
@@ -194,6 +195,8 @@ function getMessageType(message: CustomChatItem) {
 			return MessageType.NewSponsor;
 		case "membershipGiftRedemptionAction":
 			return MessageType.MembershipGift;
+		case "membershipGiftPurchaseAction":
+			return MessageType.MembershipGiftPurchase;
 		case "addMembershipMilestoneItemAction":
 			return MessageType.Milestone;
 		case "addSuperChatItemAction":

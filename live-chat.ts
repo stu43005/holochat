@@ -164,15 +164,13 @@ masterchatManager.addListener("actions", (actions, mc) => {
 				case "addMembershipItemAction":
 				case "addMembershipMilestoneItemAction":
 				case "membershipGiftRedemptionAction":
+				case "membershipGiftPurchaseAction":
 					parseMessage(live, chat)
 						.then(chatItem => onChatItem(live, chatItem));
 
 					// if (chat.rawMessage?.some(run => (run as any).navigationEndpoint)) {
 					// 	writeDebugJson(live, `navigationEndpoint-${chat.id}`, chat);
 					// }
-					break;
-
-				case "membershipGiftPurchaseAction":
 					break;
 
 				case "modeChangeAction":

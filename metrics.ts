@@ -107,6 +107,16 @@ const videoMaxViewers = new Gauge({
 	labelNames: videoLabels,
 });
 
+function getOldVideoMaxViewers(videoId: string): number {
+	if (videoMaxViewersMap.has(videoId)) {
+		return videoMaxViewersMap.get(videoId) ?? 0;
+	}
+	for (const entry of findMetric(videoMaxViewers, "videoId", videoId)) {
+		return entry.value;
+	}
+	return 0;
+}
+
 const videoStartTime = new Gauge({
 	name: "holochat_video_start_time_seconds",
 	help: "Start time of the video since unix epoch in seconds.",
@@ -154,6 +164,16 @@ const metrics = {
 	holochat_filter_test_failed: counterFilterTestFailed,
 };
 
+function* findMetric(metric: Gauge<string> | Counter<string>, labelKey: string, labelValue: string) {
+	const values = Object.values<any>((metric as any).hashMap);
+	for (const entry of values) {
+		const labels = entry.labels;
+		if (labels[labelKey] === labelValue) {
+			yield entry;
+		}
+	}
+}
+
 //#endregion
 
 //#region video info
@@ -189,6 +209,11 @@ export function updateVideoInfo(live: Video) {
 		if (latest) {
 			gaugeVideoInfo.remove(getVideoInfoLabel(latest));
 		}
+		else {
+			for (const entry of findMetric(gaugeVideoInfo, "videoId", live.videoId)) {
+				gaugeVideoInfo.remove(entry.labels);
+			}
+		}
 
 		gaugeVideoInfo.labels(getVideoInfoLabel(live)).set(1);
 		latestVideoInfo.set(live.videoId, live);
@@ -221,7 +246,7 @@ export function updateVideoMetrics(live: Video) {
 	const label = getVideoLabel(live);
 	if (live.liveViewers) {
 		videoViewers.labels(label).set(live.liveViewers);
-		if ((videoMaxViewersMap.get(live.videoId) ?? 0) < live.liveViewers) {
+		if (getOldVideoMaxViewers(live.videoId) < live.liveViewers) {
 			videoMaxViewers.labels(label).set(live.liveViewers);
 			videoMaxViewersMap.set(live.videoId, live.liveViewers);
 		}

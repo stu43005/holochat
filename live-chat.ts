@@ -2,20 +2,18 @@ import config from "config";
 import { MessageEmbed, WebhookClient } from "discord.js";
 import * as fs from "fs/promises";
 import type { Video } from "holodex.js";
-import { HolodexApiClient, VideoStatus, VideoType, ExtraData } from "holodex.js";
+import { ExtraData, VideoStatus, VideoType } from "holodex.js";
 import { AddPollResultAction, AddRedirectBannerAction, MasterchatError, ModeChangeAction, StreamPool, stringify } from "masterchat";
 import moment from "moment";
 import path from "path";
 import { cache } from "./cache";
+import { getLiveVideos, getLiveVideosByChannelId, getVideo, getVideos } from "./holodex";
 import { checkIsMarked, CustomChatItem, parseMessage, runsToStringOptions } from "./masterchat-parser";
 import { addMessageMetrics, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, initVideoMetrics, restoreAllMetrics, updateVideoEnding, updateVideoMetrics } from "./metrics";
 import { secondsToHms } from "./utils";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
-const holoapi = new HolodexApiClient({
-	apiKey: config.get<string>("holodex_apikey"),
-});
 const masterchatManager = new StreamPool({ mode: "live" });
 const webhook = new WebhookClient({
 	id: config.get<string>("discord_id"),
@@ -27,23 +25,19 @@ const webhook2 = config.has("discord_id_full") ? new WebhookClient({
 }) : null;
 const extraChannels = config.has("extraChannels") ? config.get<string[]>("extraChannels") : [];
 
-// const messageFilters: Record<string, BloomFilter> = {};
 let inited = false;
 
 export async function fetchChannel() {
 	const t = moment();
-	const lives = await holoapi.getLiveVideos({
-		org: "Hololive",
-		max_upcoming_hours: 20000,
-	});
-	const ended = await holoapi.getVideos({
+	const lives = await getLiveVideos("Hololive");
+	const ended = await getVideos({
 		org: "Hololive",
 		status: VideoStatus.Past,
 		type: VideoType.Stream,
 		include: [ExtraData.LiveInfo],
 	});
 	if (extraChannels && extraChannels.length) {
-		const lives2 = await holoapi.getLiveVideosByChannelId(extraChannels);
+		const lives2 = await getLiveVideosByChannelId(extraChannels);
 		lives2.forEach(video => {
 			lives.push(video);
 		});
@@ -79,7 +73,6 @@ export async function fetchChannel() {
 		if (!videoId) continue;
 		// if (channels.length && !channels.includes(live.channel.youtubeId)) continue; // Not in channel list
 
-		cache.set(videoId, live);
 		if (masterchatManager.has(videoId)) {
 			// already started
 			updateVideoMetrics(live);
@@ -102,7 +95,6 @@ async function startChatRecord(live: Video) {
 	deleteRemoveMetricsTimer(videoId);
 	initVideoMetrics(live);
 
-	// messageFilters[videoId] = BloomFilter.create(100000, 0.02);
 	masterchatManager.subscribe(live.videoId, live.channel.channelId, {
 		ignoreFirstResponse: true,
 	});
@@ -111,15 +103,14 @@ async function startChatRecord(live: Video) {
 	logChatsCount();
 }
 
-function stopChatRecord(videoId: string, onError = false) {
+async function stopChatRecord(videoId: string, onError = false) {
 	cache.srem(KEY_YOUTUBE_LIVE_IDS, videoId);
 
-	const live = cache.get<Video>(videoId);
+	const live = await getVideo(videoId);
 	if (live) {
 		delayRemoveVideoMetrics(live);
 	}
 
-	// delete messageFilters[videoId];
 	masterchatManager.unsubscribe(videoId);
 
 	console.log(`Stop record: ${videoId}`);
@@ -133,8 +124,8 @@ const stopRecordTimerMs = 10 * 60 * 1000;
 
 export function delayStopRecord(videoId: string) {
 	if (!stopRecordTimer[videoId]) {
-		stopRecordTimer[videoId] = global.setTimeout(() => {
-			stopChatRecord(videoId);
+		stopRecordTimer[videoId] = global.setTimeout(async () => {
+			await stopChatRecord(videoId);
 			delete stopRecordTimer[videoId];
 		}, stopRecordTimerMs);
 	}
@@ -151,8 +142,8 @@ export function deleteStopRecordTimer(videoId: string) {
 
 //#region masterchat listeners
 
-masterchatManager.addListener("actions", (actions, mc) => {
-	const live = cache.get<Video>(mc.videoId);
+masterchatManager.addListener("actions", async (actions, mc) => {
+	const live = await getVideo(mc.videoId);
 	if (live) {
 		for (const chat of actions) {
 			// console.log(chat.authorName, runsToString(chat.rawMessage));
@@ -188,15 +179,15 @@ masterchatManager.addListener("actions", (actions, mc) => {
 	}
 });
 
-masterchatManager.addListener("end", (metadata, mc) => {
-	const live = cache.get<Video>(mc.videoId);
+masterchatManager.addListener("end", async (metadata, mc) => {
+	const live = await getVideo(mc.videoId);
 	if (live && !live.actualEnd) {
 		updateVideoEnding(live, new Date());
 	}
-	stopChatRecord(mc.videoId);
+	await stopChatRecord(mc.videoId);
 });
 
-masterchatManager.addListener("error", (error, mc) => {
+masterchatManager.addListener("error", async (error, mc) => {
 	if (error instanceof MasterchatError) {
 		console.error(`[${mc.videoId}] ${error.message}`);
 		// "disabled" => Live chat is disabled
@@ -211,7 +202,7 @@ masterchatManager.addListener("error", (error, mc) => {
 	else {
 		console.error(`[${mc.videoId}]`, error);
 	}
-	stopChatRecord(mc.videoId, true);
+	await stopChatRecord(mc.videoId, true);
 });
 
 //#endregion

@@ -3,18 +3,14 @@ import fs from "fs";
 import type { Video } from "holodex.js";
 import path from "path";
 import { Counter, Gauge, register } from "prom-client";
-import { cache } from "./cache";
 import { CustomChatItem } from "./masterchat-parser";
 
 //#region types
 
-const videoLabels = ["channelId", "channelName", "videoId", "title"] as const;
+const videoLabels = ["videoId"] as const;
 
 interface VideoLabel {
-	channelId: string;
-	channelName: string;
 	videoId: string;
-	title: string;
 }
 
 const enum MessageType {
@@ -45,6 +41,20 @@ interface MessageLabel extends VideoLabel {
 //#endregion
 
 //#region metrics
+
+const gaugeVideoInfo = new Gauge({
+	name: "holochat_video_info",
+	help: "Labeled video infomation",
+	labelNames: [
+		"org",
+		"channelId",
+		"channelName",
+		"videoId",
+		"title",
+		"status",
+		"topic",
+	],
+});
 
 const counterReceiveMessages = new Counter({
 	name: "holochat_receive_messages",
@@ -123,6 +133,7 @@ export const counterFilterTestFailed = new Counter({
 });
 
 const metrics = {
+	holochat_video_info: gaugeVideoInfo,
 	holochat_receive_messages: counterReceiveMessages,
 	holochat_receive_message_users: counterReceiveMessageUsers,
 	holochat_super_chat_value: gaugeSuperChatJpyValue,
@@ -137,23 +148,60 @@ const metrics = {
 
 //#endregion
 
-//#region functions
+//#region video info
 
-export function getVideoLabel(live: Video): VideoLabel {
-	const cacheKey = getVideoLabelKey(live.videoId);
-	const label: VideoLabel = cache.getDefault(cacheKey, () => ({
+interface VideoInfoLabel {
+	org: string;
+	channelId: string;
+	channelName: string;
+	videoId: string;
+	title: string;
+	status: string;
+	topic: string;
+}
+
+export function getVideoInfoLabel(live: Video): VideoInfoLabel {
+	const label: VideoInfoLabel = {
+		org: live.channel.organization ?? "(null)",
 		channelId: live.channel.channelId,
 		channelName: live.channel.name,
 		videoId: live.videoId,
 		title: live.title,
-	}));
-	if (!messageLabels[live.videoId]) messageLabels[live.videoId] = new Set();
-	messageLabels[live.videoId].add(JSON.stringify(label));
+		status: live.status,
+		topic: live.topic ?? "(null)",
+	};
+	saveLabel(live.videoId, label);
 	return label;
 }
 
-function getVideoLabelKey(videoId: string) {
-	return `metrics_video_label_${videoId}`;
+const latestVideoInfo = new Map<string, Video>();
+export function updateVideoInfo(live: Video) {
+	const latest = latestVideoInfo.get(live.videoId);
+	if (latest !== live) {
+		if (latest) {
+			gaugeVideoInfo.remove(getVideoInfoLabel(latest));
+		}
+
+		gaugeVideoInfo.labels(getVideoInfoLabel(live)).set(1);
+		latestVideoInfo.set(live.videoId, live);
+	}
+}
+
+//#endregion
+
+//#region functions
+
+function saveLabel(videoId: string, label: {}) {
+	if (!messageLabels[videoId]) messageLabels[videoId] = new Set();
+	messageLabels[videoId].add(JSON.stringify(label));
+}
+
+export function getVideoLabel(live: Video): VideoLabel {
+	const label: VideoLabel = {
+		videoId: live.videoId,
+	};
+	saveLabel(live.videoId, label);
+	return label;
 }
 
 export function initVideoMetrics(live: Video) {
@@ -161,6 +209,7 @@ export function initVideoMetrics(live: Video) {
 }
 
 export function updateVideoMetrics(live: Video) {
+	updateVideoInfo(live);
 	const label = getVideoLabel(live);
 	if (live.liveViewers) {
 		videoViewers.labels(label).set(live.liveViewers);
@@ -230,8 +279,7 @@ export function addMessageMetrics(live: Video, message: CustomChatItem) {
 	};
 
 	const videoId = live.videoId;
-	if (!messageLabels[videoId]) messageLabels[videoId] = new Set();
-	messageLabels[videoId].add(JSON.stringify(label));
+	saveLabel(videoId, label);
 
 	counterReceiveMessages.labels(label).inc(1);
 
@@ -241,7 +289,7 @@ export function addMessageMetrics(live: Video, message: CustomChatItem) {
 			currency: message.scCurrency,
 		};
 		gaugeSuperChatJpyValue.labels(scLabel).inc(message.scJpyAmount);
-		messageLabels[videoId].add(JSON.stringify(scLabel));
+		saveLabel(videoId, scLabel);
 	}
 
 	if (message.scAmount > 0) {
@@ -250,7 +298,7 @@ export function addMessageMetrics(live: Video, message: CustomChatItem) {
 			currency: message.scCurrency,
 		};
 		gaugeSuperChatValue.labels(scLabel).inc(message.scAmount);
-		messageLabels[videoId].add(JSON.stringify(scLabel));
+		saveLabel(videoId, scLabel);
 	}
 
 	if (!userFilters[videoId]) userFilters[videoId] = {};
@@ -304,9 +352,22 @@ export function guessMessageAuthorType(videoId: string, channelId: string) {
 	return authorType;
 }
 
+//#endregion
+
+//#region remove metrics
+
 export function removeVideoMetrics(live: Video) {
-	const label = getVideoLabel(live);
 	const videoId = live.videoId;
+	const label = getVideoLabel(live);
+	gaugeVideoInfo.remove(getVideoInfoLabel(live));
+	videoViewers.remove(label);
+	videoStartTime.remove(label);
+	videoEndTime.remove(label);
+	videoUpTime.remove(label);
+	videoDuration.remove(label);
+	counterFilterTestFailed.remove(label);
+	delete userFilters[videoId];
+
 	const metricKeys: (keyof typeof metrics)[] = Object.keys(metrics) as any;
 	if (messageLabels[videoId]) {
 		messageLabels[videoId].forEach(l => {
@@ -321,18 +382,7 @@ export function removeVideoMetrics(live: Video) {
 		});
 		delete messageLabels[videoId];
 	}
-	videoViewers.remove(label);
-	videoStartTime.remove(label);
-	videoEndTime.remove(label);
-	videoUpTime.remove(label);
-	videoDuration.remove(label);
-	counterFilterTestFailed.remove(label);
-	delete userFilters[videoId];
 }
-
-//#endregion
-
-//#region delay remove metrics
 
 const removeMetricsTimer: Record<string, NodeJS.Timeout> = {};
 const removeMetricsTimerMs = 10 * 60 * 1000;
@@ -452,32 +502,32 @@ function restoreVideoMetrics(backup: any[], live: Video) {
 	const keys: (keyof typeof metrics)[] = Object.keys(metrics) as any;
 	for (const key of keys) {
 		const metric = metrics[key];
+		const labelNames: string[] = (metric as any).labelNames;
 		const oldData = backup?.find(entry => entry.name === key);
 		if (!oldData) continue;
 		const values = oldData?.values?.filter((value: any) => value?.labels?.videoId === videoId);
 		if (!values?.length) continue;
 
-		for (const value of values) {
-			const valueLabel = value.labels;
-			const valueValue = value.value;
-			if (!valueLabel || !valueValue) continue;
+		for (const entry of values) {
+			const labels = entry.labels;
+			const value: number = entry.value;
+			if (!labels || value === undefined || value === null) continue;
+
+			// [更新] 移除過多的 labels
+			for (const key of Object.keys(labels)) {
+				if (!labelNames.includes(key)) {
+					delete labels[key];
+				}
+			}
 
 			if (metric instanceof Gauge) {
-				metric.labels(valueLabel).set(valueValue);
+				metric.labels(labels).set(value);
 			}
 			else if (metric instanceof Counter) {
-				metric.labels(valueLabel).inc(valueValue);
+				metric.labels(labels).inc(value);
 			}
 
-			if (!messageLabels[videoId]) messageLabels[videoId] = new Set();
-			messageLabels[videoId].add(JSON.stringify(valueLabel));
-
-			cache.set(getVideoLabelKey(videoId), {
-				channelId: valueLabel.channelId,
-				channelName: valueLabel.channelName,
-				videoId: valueLabel.videoId,
-				title: valueLabel.title,
-			});
+			saveLabel(videoId, labels);
 		}
 	}
 }

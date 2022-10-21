@@ -1,6 +1,6 @@
 import { BloomFilter } from "bloom-filters";
 import fs from "fs";
-import type { Video } from "holodex.js";
+import { Video, VideoStatus } from "holodex.js";
 import path from "path";
 import { Counter, Gauge, register } from "prom-client";
 import { CustomChatItem } from "./masterchat-parser";
@@ -223,7 +223,7 @@ export function updateVideoMetrics(live: Video) {
 		videoStartTime.labels(label).set(startDate.getTime() / 1000);
 
 		const duration = endDate.getTime() - startDate.getTime();
-		if (duration > 0) {
+		if (duration > 0 && [VideoStatus.Live, VideoStatus.Past].includes(live.status)) {
 			videoDuration.labels(label).set(duration / 1000);
 		}
 	}

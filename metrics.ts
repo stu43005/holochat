@@ -100,6 +100,13 @@ const videoViewers = new Gauge({
 	labelNames: videoLabels,
 });
 
+const videoMaxViewersMap = new Map<string, number>();
+const videoMaxViewers = new Gauge({
+	name: "holochat_video_max_viewers",
+	help: "Number of viedo max viewer count",
+	labelNames: videoLabels,
+});
+
 const videoStartTime = new Gauge({
 	name: "holochat_video_start_time_seconds",
 	help: "Start time of the video since unix epoch in seconds.",
@@ -139,6 +146,7 @@ const metrics = {
 	holochat_super_chat_value: gaugeSuperChatJpyValue,
 	holochat_super_chat_value_origin: gaugeSuperChatValue,
 	holochat_video_viewers: videoViewers,
+	holochat_video_max_viewers: videoMaxViewers,
 	holochat_video_start_time_seconds: videoStartTime,
 	holochat_video_end_time_seconds: videoEndTime,
 	holochat_video_up_time_seconds: videoUpTime,
@@ -213,6 +221,10 @@ export function updateVideoMetrics(live: Video) {
 	const label = getVideoLabel(live);
 	if (live.liveViewers) {
 		videoViewers.labels(label).set(live.liveViewers);
+		if ((videoMaxViewersMap.get(live.videoId) ?? 0) < live.liveViewers) {
+			videoMaxViewers.labels(label).set(live.liveViewers);
+			videoMaxViewersMap.set(live.videoId, live.liveViewers);
+		}
 	}
 	else {
 		videoViewers.labels(label).set(0);
@@ -361,12 +373,15 @@ export function removeVideoMetrics(live: Video) {
 	const label = getVideoLabel(live);
 	gaugeVideoInfo.remove(getVideoInfoLabel(live));
 	videoViewers.remove(label);
+	videoMaxViewers.remove(label);
 	videoStartTime.remove(label);
 	videoEndTime.remove(label);
 	videoUpTime.remove(label);
 	videoDuration.remove(label);
 	counterFilterTestFailed.remove(label);
 	delete userFilters[videoId];
+	latestVideoInfo.delete(videoId);
+	videoMaxViewersMap.delete(videoId);
 
 	const metricKeys: (keyof typeof metrics)[] = Object.keys(metrics) as any;
 	if (messageLabels[videoId]) {

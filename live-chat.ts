@@ -1,11 +1,12 @@
 import config from "config";
-import { MessageEmbed, WebhookClient } from "discord.js";
+import { MessageEmbed, WebhookMessageOptions } from "discord.js";
 import * as fs from "fs/promises";
 import type { Video } from "holodex.js";
 import { ExtraData, VideoStatus, VideoType } from "holodex.js";
 import { AddPollResultAction, AddRedirectBannerAction, MasterchatError, ModeChangeAction, StreamPool, stringify } from "masterchat";
 import moment from "moment";
 import path from "path";
+import { fetch } from "undici";
 import { cache } from "./cache";
 import { getLiveVideos, getLiveVideosByChannelId, getVideo, getVideos } from "./holodex";
 import { checkIsMarked, CustomChatItem, parseMessage, runsToStringOptions } from "./masterchat-parser";
@@ -15,14 +16,8 @@ import { secondsToHms } from "./utils";
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
 const masterchatManager = new StreamPool({ mode: "live" });
-const webhook = new WebhookClient({
-	id: config.get<string>("discord_id"),
-	token: config.get<string>("discord_token"),
-});
-const webhook2 = config.has("discord_id_full") ? new WebhookClient({
-	id: config.get<string>("discord_id_full"),
-	token: config.get<string>("discord_token_full"),
-}) : null;
+const webhook = config.get<string>("discord_webhook_url");
+const webhook2 = config.has("discord_webhook_url_full") ? config.get<string>("discord_webhook_url_full") : null;
 const extraChannels = config.has("extraChannels") ? config.get<string[]>("extraChannels") : [];
 
 let inited = false;
@@ -235,7 +230,7 @@ async function onChatItem(live: Video, chatItem: CustomChatItem) {
 	addMessageMetrics(live, chatItem);
 }
 
-function postDiscord(webhook: WebhookClient, live: Video, chatItem: CustomChatItem) {
+function postDiscord(webhook: string, live: Video, chatItem: CustomChatItem) {
 	const message = new MessageEmbed();
 	if (chatItem.authorName) {
 		message.setAuthor({
@@ -256,7 +251,7 @@ function postDiscord(webhook: WebhookClient, live: Video, chatItem: CustomChatIt
 	if (chatItem.image) message.setImage(chatItem.image);
 	const color = getEmbedColor(chatItem);
 	if (color) message.setColor(color);
-	return webhook.send({ embeds: [message] });
+	return sendWebhook(webhook, { embeds: [message] });
 }
 
 function getEmbedColor(message: CustomChatItem) {
@@ -320,7 +315,7 @@ ${action.choices.map(choice => `${stringify(choice.text, runsToStringOptions)} (
 		iconURL: live.channel.avatarUrl,
 	});
 	message.setTimestamp(actionTime);
-	return webhook.send({ embeds: [message] });
+	return sendWebhook(webhook, { embeds: [message] });
 }
 
 //#endregion
@@ -351,7 +346,7 @@ function onModeChange(live: Video, chat: ModeChangeAction) {
 		iconURL: live.channel.avatarUrl,
 	});
 	message.setTimestamp(now);
-	return webhook.send({ embeds: [message] });
+	return sendWebhook(webhook, { embeds: [message] });
 }
 
 //#endregion
@@ -379,10 +374,18 @@ function onRaidIncoming(live: Video, chat: AddRedirectBannerAction) {
 		iconURL: live.channel.avatarUrl,
 	});
 	message.setTimestamp(now);
-	return webhook.send({ embeds: [message] });
+	return sendWebhook(webhook, { embeds: [message] });
 }
 
 //#endregion
+
+function sendWebhook(url: string, body: WebhookMessageOptions) {
+	return fetch(url, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body),
+	});
+}
 
 function logChatsCount() {
 	global.setTimeout(() => {

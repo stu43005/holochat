@@ -1,7 +1,6 @@
 {
 	"google_api_key": "GOOGLE_API_KEY",
-	"discord_id": "DISCORD_WEBHOOK_ID",
-	"discord_token": "DISCORD_WEBHOOK_TOKEN",
+	"discord_webhook_url": "DISCORD_WEBHOOK_URL",
 	"open_exchange_rates_app_id": "OPEN_EXCHANGE_RATES_APP_ID",
 	"holodex_apikey": "HOLODEX_APIKEY"
 }

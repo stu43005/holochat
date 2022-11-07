@@ -22,7 +22,7 @@
     "express": "^4.17.1",
     "holodex.js": "^2.0.5",
     "masterchat": "^1.0.0",
-    "moment": "^2.29.1",
+    "moment": "^2.29.4",
     "node-cache": "^5.1.2",
     "prom-client": "^14.0.1",
     "undici": "^5.12.0"

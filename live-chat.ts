@@ -1,5 +1,5 @@
 import config from "config";
-import { MessageEmbed, WebhookMessageOptions } from "discord.js";
+import { EmbedBuilder, WebhookCreateMessageOptions } from "discord.js";
 import * as fs from "fs/promises";
 import type { Video } from "holodex.js";
 import { ExtraData, VideoStatus, VideoType } from "holodex.js";
@@ -231,7 +231,7 @@ async function onChatItem(live: Video, chatItem: CustomChatItem) {
 }
 
 function postDiscord(webhook: string, live: Video, chatItem: CustomChatItem) {
-	const message = new MessageEmbed();
+	const message = new EmbedBuilder();
 	if (chatItem.authorName) {
 		message.setAuthor({
 			name: chatItem.authorName,
@@ -299,7 +299,7 @@ function onPollResult(live: Video, action: AddPollResultAction) {
 	const isBeforeStream = !live.actualStart || live.actualStart > actionTime;
 	const time = isBeforeStream ? 0 : Math.floor((actionTime.getTime() - live.actualStart!.getTime()) / 1000);
 
-	const message = new MessageEmbed();
+	const message = new EmbedBuilder();
 	message.setAuthor({
 		name: live.channel.name,
 		iconURL: live.channel.avatarUrl,
@@ -329,7 +329,7 @@ function onModeChange(live: Video, chat: ModeChangeAction) {
 	const isBeforeStream = !live.actualStart || live.actualStart > now;
 	const time = isBeforeStream ? 0 : Math.floor((now.getTime() - live.actualStart!.getTime()) / 1000);
 
-	const message = new MessageEmbed();
+	const message = new EmbedBuilder();
 	message.setAuthor({
 		name: live.channel.name,
 		iconURL: live.channel.avatarUrl,
@@ -339,8 +339,18 @@ function onModeChange(live: Video, chat: ModeChangeAction) {
 	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
 	message.setDescription(chat.description);
-	message.addField("Enabled", `${chat.enabled}`, true);
-	message.addField("Mode", `${chat.mode}`, true);
+	message.addFields([
+		{
+			name: "Enabled",
+			value: `${chat.enabled}`,
+			inline: true,
+		},
+		{
+			name: "Mode",
+			value: `${chat.mode}`,
+			inline: true,
+		},
+	]);
 	message.setFooter({
 		text: live.title,
 		iconURL: live.channel.avatarUrl,
@@ -360,7 +370,7 @@ function onRaidIncoming(live: Video, chat: AddRedirectBannerAction) {
 	const isBeforeStream = !live.actualStart || live.actualStart > now;
 	const time = isBeforeStream ? 0 : Math.floor((now.getTime() - live.actualStart!.getTime()) / 1000);
 
-	const message = new MessageEmbed();
+	const message = new EmbedBuilder();
 	message.setAuthor({
 		name: chat.authorName,
 		iconURL: chat.authorPhoto,
@@ -379,7 +389,7 @@ function onRaidIncoming(live: Video, chat: AddRedirectBannerAction) {
 
 //#endregion
 
-function sendWebhook(url: string, body: WebhookMessageOptions) {
+function sendWebhook(url: string, body: WebhookCreateMessageOptions) {
 	return fetch(url, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },

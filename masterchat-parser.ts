@@ -1,6 +1,5 @@
-import { bold, hyperlink, italic } from "@discordjs/builders";
 import config from "config";
-import { Util } from "discord.js";
+import { bold, escapeMarkdown, hyperlink, italic } from "discord.js";
 import type { Video } from "holodex.js";
 import { AddChatItemAction, AddMembershipItemAction, AddMembershipMilestoneItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, MembershipGiftPurchaseAction, MembershipGiftRedemptionAction, stringify, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTTextRun } from "masterchat";
 import { guessMessageAuthorType } from "./metrics";
@@ -42,7 +41,7 @@ function getAuthorTypeTags(chatItem: CustomChatItem) {
 
 export const runsToStringOptions = {
 	textHandler: (run: YTTextRun): string => {
-		let text = Util.escapeMarkdown(run.text);
+		let text = escapeMarkdown(run.text);
 		if (run.navigationEndpoint) {
 			const url = endpointToUrl(run.navigationEndpoint);
 			if (url) {

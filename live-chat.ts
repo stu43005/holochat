@@ -1,9 +1,9 @@
 import config from "config";
-import { codeBlock, EmbedBuilder, escapeCodeBlock, WebhookCreateMessageOptions } from "discord.js";
+import { codeBlock, EmbedBuilder, escapeCodeBlock, hyperlink, WebhookCreateMessageOptions } from "discord.js";
 import * as fs from "fs/promises";
 import type { Video } from "holodex.js";
 import { ExtraData, VideoStatus, VideoType } from "holodex.js";
-import { AddPollResultAction, AddRedirectBannerAction, MasterchatError, ModeChangeAction, StreamPool, stringify, UnknownAction } from "masterchat";
+import { AddIncomingRaidBannerAction, AddOutgoingRaidBannerAction, AddPollResultAction, MasterchatError, ModeChangeAction, StreamPool, stringify, UnknownAction } from "masterchat";
 import moment from "moment";
 import path from "path";
 import { fetch } from "undici";
@@ -167,8 +167,11 @@ masterchatManager.addListener("actions", async (actions, mc) => {
 					// writeDebugJson(live, `addPollResultAction-${chat.id}`, chat);
 					onPollResult(live, chat);
 					break;
-				case "addRedirectBannerAction":
-					onRaidIncoming(live, chat);
+				case "addIncomingRaidBannerAction":
+					onIncomingRaid(live, chat);
+					break;
+				case "addOutgoingRaidBannerAction":
+					onOutgoingRaid(live, chat);
 					break;
 			}
 
@@ -372,7 +375,7 @@ function onModeChange(live: Video, chat: ModeChangeAction) {
 
 //#region raid event notifications
 
-function onRaidIncoming(live: Video, chat: AddRedirectBannerAction) {
+function onIncomingRaid(live: Video, chat: AddIncomingRaidBannerAction) {
 	if (!checkIsMarked(live.channelId)) return;
 
 	const actionTime = new Date();
@@ -380,13 +383,42 @@ function onRaidIncoming(live: Video, chat: AddRedirectBannerAction) {
 
 	const message = new EmbedBuilder();
 	message.setAuthor({
-		name: chat.authorName,
-		iconURL: chat.authorPhoto,
+		name: chat.sourceName,
+		iconURL: chat.sourcePhoto,
 	});
 	message.setTitle(`Raid Event • At ${secondsToHms(time)}`);
 	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
-	message.setDescription(`${chat.authorName} and their viewers just joined. Say hello!`);
+	message.setDescription(`${chat.sourceName} and their viewers just joined. Say hello!`);
+	message.setFooter({
+		text: live.title,
+		iconURL: live.channel.avatarUrl,
+	});
+	message.setTimestamp(actionTime);
+	return sendWebhook(webhook, { embeds: [message] });
+}
+
+function onOutgoingRaid(live: Video, chat: AddOutgoingRaidBannerAction) {
+	if (!checkIsMarked(live.channelId)) return;
+
+	const actionTime = new Date();
+	const time = getChatTime(live, actionTime);
+
+	const message = new EmbedBuilder();
+	message.setAuthor({
+		name: chat.targetName,
+		iconURL: chat.targetPhoto,
+	});
+	message.setTitle(`Raid Event • At ${secondsToHms(time)}`);
+	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
+	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
+	message.setDescription(`Don't miss out! People are going to watch something from ${chat.targetName}`);
+	message.addFields([
+		{
+			name: `Link`,
+			value: hyperlink("Target Video", `https://youtu.be/${chat.targetVideoId}`),
+		},
+	]);
 	message.setFooter({
 		text: live.title,
 		iconURL: live.channel.avatarUrl,

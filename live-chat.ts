@@ -1,9 +1,9 @@
 import config from "config";
-import { EmbedBuilder, WebhookCreateMessageOptions } from "discord.js";
+import { codeBlock, EmbedBuilder, escapeCodeBlock, WebhookCreateMessageOptions } from "discord.js";
 import * as fs from "fs/promises";
 import type { Video } from "holodex.js";
 import { ExtraData, VideoStatus, VideoType } from "holodex.js";
-import { AddPollResultAction, AddRedirectBannerAction, MasterchatError, ModeChangeAction, StreamPool, stringify } from "masterchat";
+import { AddPollResultAction, AddRedirectBannerAction, MasterchatError, ModeChangeAction, StreamPool, stringify, UnknownAction } from "masterchat";
 import moment from "moment";
 import path from "path";
 import { fetch } from "undici";
@@ -17,7 +17,8 @@ const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
 const masterchatManager = new StreamPool({ mode: "live" });
 const webhook = config.get<string>("discord_webhook_url");
-const webhook2 = config.has("discord_webhook_url_full") ? config.get<string>("discord_webhook_url_full") : null;
+const webhook_full = config.has("discord_webhook_url_full") ? config.get<string>("discord_webhook_url_full") : null;
+const webhook_debug = config.has("discord_webhook_url_debug") ? config.get<string>("discord_webhook_url_debug") : null;
 const extraChannels = config.has("extraChannels") ? config.get<string[]>("extraChannels") : [];
 
 let inited = false;
@@ -170,6 +171,10 @@ masterchatManager.addListener("actions", async (actions, mc) => {
 					onRaidIncoming(live, chat);
 					break;
 			}
+
+			if ((chat.type as string) === "unknown") {
+				onUnknown(live, chat as unknown as UnknownAction);
+			}
 		}
 	}
 });
@@ -218,8 +223,8 @@ async function onChatItem(live: Video, chatItem: CustomChatItem) {
 		|| chatItem.type === "membershipGiftRedemptionAction"
 		|| isImportant
 	) {
-		if (webhook2) {
-			postDiscord(webhook2, live, chatItem);
+		if (webhook_full) {
+			postDiscord(webhook_full, live, chatItem);
 		}
 	}
 	if (chatItem.isMarked) {
@@ -290,14 +295,19 @@ function getEmbedColor(message: CustomChatItem) {
 
 //#endregion
 
+function getChatTime(live: Video, actionTime: Date) {
+	const isBeforeStream = !live.actualStart || live.actualStart > actionTime;
+	const time = isBeforeStream ? 0 : Math.floor((actionTime.getTime() - live.actualStart!.getTime()) / 1000);
+	return time;
+}
+
 //#region poll
 
 function onPollResult(live: Video, action: AddPollResultAction) {
 	if (!checkIsMarked(live.channelId)) return;
 
 	const actionTime = new Date();
-	const isBeforeStream = !live.actualStart || live.actualStart > actionTime;
-	const time = isBeforeStream ? 0 : Math.floor((actionTime.getTime() - live.actualStart!.getTime()) / 1000);
+	const time = getChatTime(live, actionTime);
 
 	const message = new EmbedBuilder();
 	message.setAuthor({
@@ -325,9 +335,8 @@ ${action.choices.map(choice => `${stringify(choice.text, runsToStringOptions)} (
 function onModeChange(live: Video, chat: ModeChangeAction) {
 	if (!checkIsMarked(live.channelId)) return;
 
-	const now = new Date();
-	const isBeforeStream = !live.actualStart || live.actualStart > now;
-	const time = isBeforeStream ? 0 : Math.floor((now.getTime() - live.actualStart!.getTime()) / 1000);
+	const actionTime = new Date();
+	const time = getChatTime(live, actionTime);
 
 	const message = new EmbedBuilder();
 	message.setAuthor({
@@ -355,7 +364,7 @@ function onModeChange(live: Video, chat: ModeChangeAction) {
 		text: live.title,
 		iconURL: live.channel.avatarUrl,
 	});
-	message.setTimestamp(now);
+	message.setTimestamp(actionTime);
 	return sendWebhook(webhook, { embeds: [message] });
 }
 
@@ -366,9 +375,8 @@ function onModeChange(live: Video, chat: ModeChangeAction) {
 function onRaidIncoming(live: Video, chat: AddRedirectBannerAction) {
 	if (!checkIsMarked(live.channelId)) return;
 
-	const now = new Date();
-	const isBeforeStream = !live.actualStart || live.actualStart > now;
-	const time = isBeforeStream ? 0 : Math.floor((now.getTime() - live.actualStart!.getTime()) / 1000);
+	const actionTime = new Date();
+	const time = getChatTime(live, actionTime);
 
 	const message = new EmbedBuilder();
 	message.setAuthor({
@@ -383,8 +391,31 @@ function onRaidIncoming(live: Video, chat: AddRedirectBannerAction) {
 		text: live.title,
 		iconURL: live.channel.avatarUrl,
 	});
-	message.setTimestamp(now);
+	message.setTimestamp(actionTime);
 	return sendWebhook(webhook, { embeds: [message] });
+}
+
+//#endregion
+
+//#region unknown
+
+function onUnknown(live: Video, chat: UnknownAction) {
+	if (!webhook_debug) return;
+
+	const actionTime = new Date();
+	const time = getChatTime(live, actionTime);
+
+	const message = new EmbedBuilder();
+	message.setTitle(`Receive unknown action • At ${secondsToHms(time)}`);
+	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
+	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
+	message.setDescription(codeBlock(escapeCodeBlock(JSON.stringify(chat.payload))));
+	message.setFooter({
+		text: live.title,
+		iconURL: live.channel.avatarUrl,
+	});
+	message.setTimestamp(actionTime);
+	return sendWebhook(webhook_debug, { embeds: [message] });
 }
 
 //#endregion

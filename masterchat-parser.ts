@@ -6,6 +6,7 @@ import { guessMessageAuthorType } from "./metrics";
 import { currencyToJpyAmount, secondsToHms } from "./utils";
 
 const channels = config.has("channels") ? config.get<string[]>("channels") : [];
+const extraChannels = config.has("extraChannels") ? config.get<string[]>("extraChannels") : [];
 
 type TextedChatItem = AddChatItemAction | AddSuperChatItemAction | AddSuperStickerItemAction | AddMembershipItemAction | AddMembershipMilestoneItemAction | MembershipGiftPurchaseAction | MembershipGiftRedemptionAction;
 
@@ -127,5 +128,11 @@ export async function parseMessage(live: Video, action: TextedChatItem) {
 }
 
 export function checkIsMarked(channelId: string) {
-	return !!(channels.length && channels.includes(channelId));
+	if (extraChannels?.length && extraChannels.includes(channelId)) {
+		return true;
+	}
+	if (channels?.length && channels.includes(channelId)) {
+		return true;
+	}
+	return false;
 }

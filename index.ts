@@ -1,6 +1,6 @@
 import express from "express";
 import { collectDefaultMetrics, register } from "prom-client";
-import { fetchChannel } from "./live-chat";
+import { fetchChannel, fetchVideoMetadata } from "./live-chat";
 
 collectDefaultMetrics();
 
@@ -23,9 +23,18 @@ global.setInterval(async () => {
 		await fetchChannel();
 	}
 	catch (error) {
-		console.error("fetchChannel error");
+		console.error("fetchChannel error", error);
 	}
 }, 3 * 60 * 1000);
+
+global.setInterval(async () => {
+	try {
+		await fetchVideoMetadata(3 * 60 * 1000);
+	}
+	catch (error) {
+		console.error("fetchVideoMetadata error", error);
+	}
+}, 1.5 * 60 * 1000);
 
 // init express server
 const app = express();

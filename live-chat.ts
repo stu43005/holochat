@@ -6,12 +6,13 @@ import { ExtraData, VideoStatus, VideoType } from "holodex.js";
 import { AddIncomingRaidBannerAction, AddOutgoingRaidBannerAction, AddPollResultAction, MasterchatError, ModeChangeAction, StreamPool, stringify, UnknownAction } from "@stu43005/masterchat";
 import moment from "moment";
 import path from "path";
+import { setTimeout } from "node:timers/promises";
 import { fetch } from "undici";
 import { cache } from "./cache";
 import { getLiveVideos, getLiveVideosByChannelId, getVideo, getVideos } from "./holodex";
 import { checkIsMarked, CustomChatItem, parseMessage, runsToStringOptions } from "./masterchat-parser";
-import { addMessageMetrics, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, initVideoMetrics, restoreAllMetrics, updateVideoEnding, updateVideoMetrics } from "./metrics";
-import { secondsToHms } from "./utils";
+import { addMessageMetrics, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, initVideoMetrics, restoreAllMetrics, updateVideoEnding, updateVideoMetrics, updateViewCount } from "./metrics";
+import { secondsToHms, shuffle } from "./utils";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
 
@@ -112,6 +113,28 @@ async function stopChatRecord(videoId: string, onError = false) {
 	console.log(`Stop record: ${videoId}`);
 	logChatsCount();
 }
+
+//#region video metadata
+
+export async function fetchVideoMetadata(window: number) {
+	const delay = window / 100;
+	for (const [videoId, mc] of shuffle(masterchatManager.entries)) {
+		const live = await getVideo(videoId);
+		if (live) {
+			try {
+				const metadata = await mc.fetchMetadataFromWatch(videoId);
+				updateViewCount(live, metadata.viewCount);
+			}
+			catch (error) {
+				console.error("fetchVideoMetadata error", error);
+				updateViewCount(live, live.liveViewers);
+			}
+		}
+		await setTimeout(delay);
+	}
+}
+
+//#endregion video metadata
 
 //#region delay stop
 
@@ -475,7 +498,7 @@ async function writeDebugJson(live: Video, name: string, obj: any) {
 	const json = JSON.stringify(obj, null, 2);
 	const outPath = `debug/${live.videoId}-${name}.json`;
 	try {
-		await fs.mkdir(path.dirname(outPath)).catch(e => {});
+		await fs.mkdir(path.dirname(outPath)).catch(e => { });
 		await fs.writeFile(outPath, json);
 	}
 	catch (e) {

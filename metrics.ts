@@ -243,17 +243,11 @@ export function initVideoMetrics(live: Video) {
 
 export function updateVideoMetrics(live: Video) {
 	updateVideoInfo(live);
+	if (getOldVideoMaxViewers(live.videoId) < 1) {
+		updateViewCount(live, live.liveViewers);
+	}
+
 	const label = getVideoLabel(live);
-	if (live.liveViewers) {
-		videoViewers.labels(label).set(live.liveViewers);
-		if (getOldVideoMaxViewers(live.videoId) < live.liveViewers) {
-			videoMaxViewers.labels(label).set(live.liveViewers);
-			videoMaxViewersMap.set(live.videoId, live.liveViewers);
-		}
-	}
-	else {
-		videoViewers.labels(label).set(0);
-	}
 	const startDate = live.actualStart ?? live.scheduledStart;
 	const endDate = live.actualEnd ?? new Date();
 	if (startDate) {
@@ -268,6 +262,17 @@ export function updateVideoMetrics(live: Video) {
 		videoEndTime.labels(label).set(live.actualEnd.getTime() / 1000);
 	}
 	videoUpTime.labels(label).set(endDate.getTime() / 1000);
+}
+
+export function updateViewCount(live: Video, viewCount: number) {
+	const label = getVideoLabel(live);
+	viewCount ||= 0;
+	videoViewers.labels(label).set(viewCount);
+
+	if (getOldVideoMaxViewers(live.videoId) < viewCount) {
+		videoMaxViewers.labels(label).set(viewCount);
+		videoMaxViewersMap.set(live.videoId, viewCount);
+	}
 }
 
 export function updateVideoEnding(live: Video, endTime: Date) {

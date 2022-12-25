@@ -3,7 +3,7 @@ import { codeBlock, EmbedBuilder, escapeCodeBlock, hyperlink, WebhookCreateMessa
 import * as fs from "fs/promises";
 import type { Video } from "holodex.js";
 import { ExtraData, VideoStatus, VideoType } from "holodex.js";
-import { AddIncomingRaidBannerAction, AddOutgoingRaidBannerAction, AddPollResultAction, MasterchatError, ModeChangeAction, StreamPool, stringify, UnknownAction } from "masterchat";
+import { AddIncomingRaidBannerAction, AddOutgoingRaidBannerAction, AddPollResultAction, MasterchatError, ModeChangeAction, StreamPool, stringify, UnknownAction } from "@stu43005/masterchat";
 import moment from "moment";
 import path from "path";
 import { fetch } from "undici";

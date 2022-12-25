@@ -1,7 +1,7 @@
 import config from "config";
 import { bold, escapeMarkdown, hyperlink, italic } from "discord.js";
 import type { Video } from "holodex.js";
-import { AddChatItemAction, AddMembershipItemAction, AddMembershipMilestoneItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, MembershipGiftPurchaseAction, MembershipGiftRedemptionAction, stringify, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTTextRun } from "masterchat";
+import { AddChatItemAction, AddMembershipItemAction, AddMembershipMilestoneItemAction, AddSuperChatItemAction, AddSuperStickerItemAction, endpointToUrl, MembershipGiftPurchaseAction, MembershipGiftRedemptionAction, stringify, SuperChatSignificance, SUPERCHAT_COLOR_MAP, SUPERCHAT_SIGNIFICANCE_MAP, YTTextRun } from "@stu43005/masterchat";
 import { guessMessageAuthorType } from "./metrics";
 import { currencyToJpyAmount, secondsToHms } from "./utils";
 

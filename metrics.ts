@@ -117,6 +117,12 @@ function getOldVideoMaxViewers(videoId: string): number {
 	return 0;
 }
 
+const videoLikes = new Gauge({
+	name: "holochat_video_likes",
+	help: "Number of viedo likes",
+	labelNames: videoLabels,
+});
+
 const videoStartTime = new Gauge({
 	name: "holochat_video_start_time_seconds",
 	help: "Start time of the video since unix epoch in seconds.",
@@ -157,6 +163,7 @@ const metrics = {
 	holochat_super_chat_value_origin: gaugeSuperChatValue,
 	holochat_video_viewers: videoViewers,
 	holochat_video_max_viewers: videoMaxViewers,
+	holochat_video_likes: videoLikes,
 	holochat_video_start_time_seconds: videoStartTime,
 	holochat_video_end_time_seconds: videoEndTime,
 	holochat_video_up_time_seconds: videoUpTime,
@@ -273,6 +280,12 @@ export function updateViewCount(live: Video, viewCount: number) {
 		videoMaxViewers.labels(label).set(viewCount);
 		videoMaxViewersMap.set(live.videoId, viewCount);
 	}
+}
+
+export function updateLikes(live: Video, likes: number) {
+	const label = getVideoLabel(live);
+	likes ||= 0;
+	videoLikes.labels(label).set(likes);
 }
 
 export function updateVideoEnding(live: Video, endTime: Date) {
@@ -404,6 +417,7 @@ export function removeVideoMetrics(live: Video) {
 	gaugeVideoInfo.remove(getVideoInfoLabel(live));
 	videoViewers.remove(label);
 	videoMaxViewers.remove(label);
+	videoLikes.remove(label);
 	videoStartTime.remove(label);
 	videoEndTime.remove(label);
 	videoUpTime.remove(label);

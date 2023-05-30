@@ -1,5 +1,5 @@
 import config from "config";
-import { codeBlock, EmbedBuilder, escapeCodeBlock, hyperlink, WebhookCreateMessageOptions } from "discord.js";
+import { codeBlock, EmbedBuilder, escapeCodeBlock, hyperlink, WebhookMessageCreateOptions } from "discord.js";
 import * as fs from "fs/promises";
 import type { Video } from "holodex.js";
 import { ExtraData, VideoStatus, VideoType } from "holodex.js";
@@ -476,7 +476,7 @@ function onUnknown(live: Video, chat: UnknownAction) {
 
 //#endregion
 
-function sendWebhook(url: string, body: WebhookCreateMessageOptions) {
+function sendWebhook(url: string, body: WebhookMessageCreateOptions) {
 	return fetch(url, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },

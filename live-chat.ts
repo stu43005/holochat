@@ -3,7 +3,7 @@ import { codeBlock, EmbedBuilder, escapeCodeBlock, hyperlink, WebhookMessageCrea
 import * as fs from "fs/promises";
 import type { Video } from "holodex.js";
 import { ExtraData, VideoStatus, VideoType } from "holodex.js";
-import { AddIncomingRaidBannerAction, AddOutgoingRaidBannerAction, AddPollResultAction, MasterchatError, ModeChangeAction, StreamPool, stringify, UnknownAction } from "@stu43005/masterchat";
+import { AddIncomingRaidBannerAction, AddOutgoingRaidBannerAction, AddPollResultAction, MasterchatError, ModeChangeAction, ParserError, StreamPool, stringify, UnknownAction } from "@stu43005/masterchat";
 import moment from "moment";
 import path from "path";
 import { setTimeout } from "node:timers/promises";
@@ -197,10 +197,11 @@ masterchatManager.addListener("actions", async (actions, mc) => {
 				case "addOutgoingRaidBannerAction":
 					onOutgoingRaid(live, chat);
 					break;
-			}
 
-			if ((chat.type as string) === "unknown") {
-				onUnknown(live, chat as unknown as UnknownAction);
+				case "unknown":
+				case "parserError":
+					onUnknown(live, chat);
+					break;
 			}
 		}
 	}
@@ -453,19 +454,27 @@ function onOutgoingRaid(live: Video, chat: AddOutgoingRaidBannerAction) {
 
 //#endregion
 
-//#region unknown
+//#region unknown & error
 
-function onUnknown(live: Video, chat: UnknownAction) {
+function onUnknown(live: Video, chat: UnknownAction | ParserError) {
 	if (!webhook_debug) return;
 
 	const actionTime = new Date();
 	const time = getChatTime(live, actionTime);
 
 	const message = new EmbedBuilder();
-	message.setTitle(`Receive unknown action • At ${secondsToHms(time)}`);
 	message.setURL(`https://youtu.be/${live.videoId}?t=${time}`);
 	message.setThumbnail(`https://i.ytimg.com/vi/${live.videoId}/mqdefault.jpg`);
-	message.setDescription(codeBlock(escapeCodeBlock(JSON.stringify(chat.payload))));
+	switch (chat.type) {
+		case "unknown":
+			message.setTitle(`Receive unknown action • At ${secondsToHms(time)}`);
+			message.setDescription(codeBlock(escapeCodeBlock(JSON.stringify(chat.payload))));
+			break;
+		case "parserError":
+			message.setTitle(`Receive parser error • At ${secondsToHms(time)}`);
+			message.setDescription(`${chat.error}\n` + codeBlock(escapeCodeBlock(JSON.stringify(chat.payload))));
+			break;
+	}
 	message.setFooter({
 		text: live.title,
 		iconURL: live.channel.avatarUrl,

@@ -11,7 +11,7 @@ import { fetch } from "undici";
 import { cache } from "./cache";
 import { getLiveVideos, getLiveVideosByChannelId, getVideo, getVideos } from "./holodex";
 import { checkIsMarked, CustomChatItem, parseMessage, runsToStringOptions } from "./masterchat-parser";
-import { addMessageMetrics, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, initVideoMetrics, restoreAllMetrics, updateLikes, updateVideoEnding, updateVideoMetrics, updateViewCount } from "./metrics";
+import { addMessageMetrics, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, initVideoMetrics, restoreAllMetrics, updateLikes, updateSubscribers, updateVideoEnding, updateVideoMetrics, updateViewCount } from "./metrics";
 import { secondsToHms, shuffle } from "./utils";
 
 const KEY_YOUTUBE_LIVE_IDS = "youtube_live_ids";
@@ -125,6 +125,7 @@ export async function fetchVideoMetadata(window: number) {
 				const metadata = await mc.fetchMetadataFromWatch(videoId);
 				updateViewCount(live, metadata.viewCount);
 				if (metadata.likes) updateLikes(live, metadata.likes);
+				if (metadata.subscribers) updateSubscribers(live, metadata.subscribers);
 			}
 			catch (error) {
 				console.error("fetchVideoMetadata error", error);

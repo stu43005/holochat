@@ -155,6 +155,14 @@ export const counterFilterTestFailed = new Counter({
 	labelNames: videoLabels,
 });
 
+const gaugeChannelSubscribers = new Gauge({
+	name: "holochat_channel_subscribers",
+	help: "Number of channel subscribers",
+	labelNames: [
+		"channelId",
+	],
+});
+
 const metrics = {
 	holochat_video_info: gaugeVideoInfo,
 	holochat_receive_messages: counterReceiveMessages,
@@ -169,6 +177,7 @@ const metrics = {
 	holochat_video_up_time_seconds: videoUpTime,
 	holochat_video_duration_seconds: videoDuration,
 	holochat_filter_test_failed: counterFilterTestFailed,
+	holochat_channel_subscribers: gaugeChannelSubscribers,
 };
 
 function* findMetric(metric: Gauge<string> | Counter<string>, labelKey: string, labelValue: string) {
@@ -286,6 +295,15 @@ export function updateLikes(live: Video, likes: number) {
 	const label = getVideoLabel(live);
 	likes ||= 0;
 	videoLikes.labels(label).set(likes);
+}
+
+export function updateSubscribers(live: Video, subscribers: number) {
+	if (subscribers) {
+		const label = {
+			channelId: live.channelId,
+		};
+		gaugeChannelSubscribers.labels(label).set(subscribers);
+	}
 }
 
 export function updateVideoEnding(live: Video, endTime: Date) {
@@ -423,6 +441,7 @@ export function removeVideoMetrics(live: Video) {
 	videoUpTime.remove(label);
 	videoDuration.remove(label);
 	counterFilterTestFailed.remove(label);
+	gaugeChannelSubscribers.remove({ channelId: live.channelId });
 	delete userFilters[videoId];
 	latestVideoInfo.delete(videoId);
 	videoMaxViewersMap.delete(videoId);

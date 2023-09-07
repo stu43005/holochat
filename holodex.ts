@@ -15,22 +15,22 @@ function cacheVideos(videos: Video[]) {
 	return videos;
 }
 
-export async function getLiveVideos(org: string) {
+export async function getLiveVideos(org: string): Promise<Video[]> {
 	return cache.getDefault(`getLiveVideos-${org}`, () => holoapi.getLiveVideos({
 		org,
 		max_upcoming_hours: 20000,
 	}), videosCacheTTL).then(cacheVideos);
 }
 
-export async function getVideos(params: VideosParam) {
+export async function getVideos(params: VideosParam): Promise<Video[]> {
 	return cache.getDefault(`getVideos-${JSON.stringify(params)}`, () => holoapi.getVideos(params), videosCacheTTL).then(cacheVideos);
 }
 
-export async function getLiveVideosByChannelId(channelIds: string | string[]) {
+export async function getLiveVideosByChannelId(channelIds: string | string[]): Promise<Video[]> {
 	return cache.getDefault(`getLiveVideosByChannelId-${channelIds}`, () => holoapi.getLiveVideosByChannelId(channelIds), videosCacheTTL).then(cacheVideos);
 }
 
-export async function getVideo(videoId: string) {
+export async function getVideo(videoId: string): Promise<Video | undefined> {
 	if (!videoId) return undefined;
 	return cache.getDefault(videoId, () => holoapi.getVideo(videoId).catch(() => undefined));
 }

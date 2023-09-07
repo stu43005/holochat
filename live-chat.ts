@@ -9,7 +9,7 @@ import path from "path";
 import { setTimeout } from "node:timers/promises";
 import { fetch } from "undici";
 import { cache } from "./cache";
-import { getLiveVideos, getLiveVideosByChannelId, getVideo, getVideos } from "./holodex";
+import { getGroup, getLiveVideos, getLiveVideosByChannelId, getVideo, getVideos } from "./holodex";
 import { checkIsMarked, CustomChatItem, parseMessage, runsToStringOptions } from "./masterchat-parser";
 import { addMessageMetrics, delayRemoveVideoMetrics, deleteRemoveMetricsTimer, initVideoMetrics, restoreAllMetrics, updateLikes, updateSubscribers, updateVideoEnding, updateVideoMetrics, updateViewCount } from "./metrics";
 import { secondsToHms, shuffle } from "./utils";
@@ -21,6 +21,7 @@ const webhook = config.get<string>("discord_webhook_url");
 const webhook_full = config.has("discord_webhook_url_full") ? config.get<string>("discord_webhook_url_full") : null;
 const webhook_debug = config.has("discord_webhook_url_debug") ? config.get<string>("discord_webhook_url_debug") : null;
 const extraChannels = config.has("extraChannels") ? config.get<string[]>("extraChannels") : [];
+const markHololiveChannels = config.get<boolean>("markHololiveChannels");
 
 let inited = false;
 
@@ -256,7 +257,7 @@ async function onChatItem(live: Video, chatItem: CustomChatItem) {
 			postDiscord(webhook_full, live, chatItem);
 		}
 	}
-	if (chatItem.isMarked) {
+	if (chatItem.isMarked || (markHololiveChannels && getGroup(chatItem.authorChannelId)?.startsWith("hololive"))) {
 		postDiscord(webhook, live, chatItem);
 	}
 

@@ -131,7 +131,6 @@
 			"interface"
 		],
 		"no-duplicate-imports": "off",
-		"@typescript-eslint/no-duplicate-imports": "error",
 		"@typescript-eslint/no-inferrable-types": "error",
 		"@typescript-eslint/no-misused-new": "error",
 		"@typescript-eslint/no-this-alias": "error",

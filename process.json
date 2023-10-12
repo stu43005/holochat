@@ -2,7 +2,7 @@
 	"apps": [
 		{
 			"name": "holochat",
-			"script": "dist/index.ts",
+			"script": "dist/index.js",
 			"restart_delay": 10000,
 			"env": {
 				"NODE_ENV": "development",

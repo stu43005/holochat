@@ -3,8 +3,9 @@ import currencyConverter from "currency-converter";
 import fs from "fs";
 import moment from "moment";
 import type { CurrencyMap, CurrencyMapEntry } from "./currencymap";
+import path from "path";
 
-const currencymap = JSON.parse(fs.readFileSync("./currencymap.json", { encoding: "utf8" })) as CurrencyMap;
+const currencymap = JSON.parse(fs.readFileSync(path.join(__dirname, "../currencymap.json"), { encoding: "utf8" })) as CurrencyMap;
 const cc = currencyConverter({
 	CLIENTKEY: config.get<string>("open_exchange_rates_app_id"),
 });

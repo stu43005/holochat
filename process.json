@@ -2,11 +2,7 @@
 	"apps": [
 		{
 			"name": "holochat",
-			"script": "index.ts",
-			"node_args": [
-				"-r",
-				"ts-node/register"
-			],
+			"script": "dist/index.ts",
 			"restart_delay": 10000,
 			"env": {
 				"NODE_ENV": "development",

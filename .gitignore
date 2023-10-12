@@ -1,5 +1,4 @@
-backup_metrics.json
-backup_user_filters.json
+backup/
 *.example.json
 debug/
 

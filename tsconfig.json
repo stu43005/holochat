@@ -1,12 +1,24 @@
 {
-	"extends": "@tsconfig/recommended/tsconfig.json",
 	"compilerOptions": {
+		"target": "es2015",
+		"module": "commonjs",
+        "lib": ["es2021"],
+		"declaration": true,
+        "sourceMap": true,
+        "outDir": "./dist",
+        "rootDir": "./src",
+		"strict": true,
+		"esModuleInterop": true,
 		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
 		"typeRoots": [
 			"./node_modules/@types",
-			"./typings",
+			"./src/typings",
 		],
 	},
+	"include": [
+		"src"
+	],
 	"exclude": [
 		"node_modules",
 		"dist"
